@@ -22,6 +22,11 @@ from ctos.emailer import build_email, save_draft
 from ctos.platforms import export_platform_drafts
 from ctos.qa import validate_assets
 from ctos.video import create_short
+from v12_strategy import save_calendar
+from v12_insights import write_report
+from v12_seo import related_link_suggestions, audit_pages
+from v12_story_reader import collect_chapters, save_chapters
+from story_bible_v10 import BIBLES
 
 
 def _key(url):
@@ -111,7 +116,7 @@ def build_one(story, base, approval=None, art_mode="cover", art_style="anime",
 def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
         art_style="anime", make_video=False, voice=False, seconds=12,
         discover_func=None, artwork_fetcher=None,
-        renderer=None, video_builder=None):
+        renderer=None, video_builder=None, audit=False, chapters=False):
     if not 1 <= limit <= 6:
         raise ValueError("Use limit between 1 and 6")
     if art_mode not in ("cover", "comfyui"):
@@ -128,6 +133,9 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
         "prepared": [], "failed": [], "live_publishing": False,
         "review_required": True,
         "art_mode": art_mode,
+        "marketing_calendar": None, "metrics_status": "no_data",
+        "story_related_links": None, "seo_report": None,
+        "chapter_research": [], "research_warnings": [],
         "important": "No AI artwork is generated in cover mode. All creatives require review."
     }
     for item in selected:
@@ -145,6 +153,38 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
                 "error_type": type(error).__name__,
                 "reason": str(error)[:220],
             })
+    # These require only verified source data; missing analytics is not a failure.
+    try:
+        report["marketing_calendar"] = str(save_calendar(
+            source, approvals=approvals, bibles=read_json(BIBLES, {}),
+            out=folder / "content_calendar.json", days=14, posts_per_day=2))
+        metric = write_report("data/campaign_metrics_v12.csv",
+                              folder / "performance.json")
+        report["metrics_status"] = metric["status"]
+        path = folder / "related_story_links.json"
+        write_json(path, related_link_suggestions(source))
+        report["story_related_links"] = str(path)
+    except (OSError, ValueError) as error:
+        report["research_warnings"].append("Marketing research: " + type(error).__name__)
+    if audit and selected:
+        try:
+            seo = audit_pages([s["link"] for s in selected],
+                              out=folder / "technical_seo.json", limit=limit)
+            report["seo_report"] = str(folder / "technical_seo.json")
+        except Exception as error:
+            report["research_warnings"].append("SEO audit: " + type(error).__name__)
+    if chapters and selected:
+        for story in selected:
+            try:
+                research = collect_chapters(story["link"], max_chapters=3)
+                research_path = folder / _key(story["link"]) / "chapter_excerpts.json"
+                save_chapters(research, research_path)
+                report["chapter_research"].append({
+                    "story": story["link"], "file": str(research_path),
+                    "verified": False,
+                })
+            except Exception as error:
+                report["research_warnings"].append("Chapter extraction: " + type(error).__name__)
     report["status"] = ("draft_ready_review_required" if report["prepared"] and not report["failed"]
                         else "partial" if report["prepared"] else "failed")
     write_json(folder / "report.json", report)

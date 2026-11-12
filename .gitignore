@@ -16,3 +16,6 @@ data/*.tmp
 
 # Local automation runtime logs
 logs/
+
+# Verified original character profiles and chapter notes
+data/story_bibles_v10.json

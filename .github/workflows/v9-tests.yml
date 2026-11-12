@@ -31,8 +31,9 @@ jobs:
           bash -n oracle_autosync_v11.sh
           bash -n setup_oracle_autosync_v11.sh
           bash -n setup_oracle_v10.sh
+          bash -n setup_oracle_v12.sh
       - name: Compile all Python modules
         run: python -m compileall -q .
       - name: Run safe, offline unit tests
         run: |
-          python -m unittest test_autosync_v11.py test_comfy_connection.py test_premium_v10.py test_story_bible_v10.py test_story_context_v10.py test_campaign_v9.py test_cinematic_v9.py test_story_marketing.py test_review_posters.py test_poster.py test_auto_story_cover.py test_assets.py -v
+          python -m unittest test_v12.py test_v12_google.py test_v12_voice.py test_autosync_v11.py test_comfy_connection.py test_premium_v10.py test_story_bible_v10.py test_story_context_v10.py test_campaign_v9.py test_cinematic_v9.py test_story_marketing.py test_review_posters.py test_poster.py test_auto_story_cover.py test_assets.py -v

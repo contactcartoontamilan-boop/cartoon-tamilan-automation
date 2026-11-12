@@ -82,3 +82,9 @@ bash setup_oracle_v12.sh
 - Real generative 3D-looking anime art requires a configured AI inference model;
   Oracle A1 CPU does not have a GPU. Technical dimension checks do not
   guarantee 100% artwork/story-language correctness.
+
+## V14 multi-scene story-video preview (optional, no publishing)
+
+- [V14 setup, neural Tamil voice, 60–120s scene-video workflow](README_V14_STORY_VIDEO.md)
+- V13 daily automation stays unchanged; V14 requires reviewed scene images and narration rights.
+- This produces animated stills, not true AI-animated character video; cloud Tamil voice requires credentials.

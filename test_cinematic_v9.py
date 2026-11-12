@@ -4,11 +4,21 @@ import unittest
 from pathlib import Path
 
 from PIL import Image, features
-from cinematic_poster_v9 import cinematic_poster
+from cinematic_poster_v9 import cinematic_poster, mask_cover_titles
 from poster_generator import find_font, latin_font
 
 
 class CinematicPosterTests(unittest.TestCase):
+    def test_printed_cover_title_region_is_fully_hidden(self):
+        from PIL import Image
+        source = Image.new("RGB", (1080, 1350), "white")
+        result = mask_cover_titles(source)
+        # Faces at the top of the key art remain visible.
+        self.assertEqual(result.getpixel((550, 300))[:3], (255, 255, 255))
+        # Text printed lower down is completely hidden; no ghost letters.
+        self.assertEqual(result.getpixel((550, 800))[:3], (10, 8, 31))
+        self.assertEqual(result.getpixel((550, 1050))[:3], (10, 8, 31))
+
     def test_cinematic_dimensions_and_brand(self):
         if not features.check("raqm"):
             self.skipTest("Pillow RAQM unavailable")

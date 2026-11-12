@@ -107,6 +107,7 @@ def auto_cover(draft_path, outdir="output/covers", session=None):
 
     stem = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
     directory = Path(outdir)
+    directory.mkdir(parents=True, exist_ok=True)
     destination = directory / (stem + ".png")
     # download_image rejects private IP targets, redirects and invalid images.
     download_image(candidate, destination, session=session)
@@ -137,6 +138,8 @@ def diagnose(draft_path):
     soup = BeautifulSoup(response.text, "html.parser")
     print("HTML title:", soup.title.get_text(" ", strip=True)[:140] if soup.title else "(none)")
     print("Matching same-site cover:", cover_from_html(response.text, url) or "(none)")
+    print("HTML image elements:", len(soup.select("img")))
+    print("NOTE: A 200 HTML response does not mean a valid original-novel page or usable cover.")
     for tag in soup.select("meta[property='og:image'], meta[name='twitter:image']")[:5]:
         print("Image metadata:", (tag.get("content") or "")[:180])
     for tag in soup.select("img")[:5]:

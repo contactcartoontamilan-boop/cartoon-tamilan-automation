@@ -40,7 +40,12 @@ def make_captions(story, approval=None):
                    f"{label} {url}\n\n{tags}")
         captions[platform] = content.strip()
     # Character limits below are conservative publishing/export design bounds.
-    captions["x"] = captions["x"][:225] + "…" if len(captions["x"]) > 240 else captions["x"]
+    # Do not truncate away the actual story CTA/link on short-post platforms.
+    short_title = story["title"].strip()
+    max_title = max(24, 260 - len(url) - 42)
+    captions["x"] = (short_title[:max_title].rstrip() +
+                     ("…" if len(short_title) > max_title else "") +
+                     "\\nOriginal Tamil story — read: " + url)
     return {
         "captions": captions,
         "hashtags": pack.get("hashtags", []),

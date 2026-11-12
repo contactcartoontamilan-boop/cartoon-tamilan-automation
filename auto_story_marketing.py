@@ -35,8 +35,8 @@ def clean(text):
 def clean_story_title(value):
     """Remove catalogue status/author/category labels from a novel title."""
     title = clean(value)
-    title = re.split(r"\\s+(?:Completed|Ongoing)\\b", title, maxsplit=1, flags=re.IGNORECASE)[0].strip()
-    return re.sub(r"\\s*[·|\\-]\\s*$", "", title).strip()
+    title = re.split(r"\s+(?:Completed|Ongoing)\b", title, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+    return re.sub(r"\s*[·|\-]\s*$", "", title).strip()
 
 
 def poster_headline(title, limit=85):

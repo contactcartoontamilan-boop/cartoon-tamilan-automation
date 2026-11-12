@@ -51,6 +51,8 @@ def render_variants(image_path, output_dir):
 
 
 def produce(draft, artwork=None, outdir="output/creative_v5", headline=None, mode="story", auto_cover=False):
+    from auto_story_cover import resolve_draft
+    draft = resolve_draft(draft)
     if auto_cover:
         from auto_story_cover import auto_cover as fetch_cover
         artwork = str(fetch_cover(draft, Path(outdir) / "covers"))
@@ -76,7 +78,7 @@ def produce(draft, artwork=None, outdir="output/creative_v5", headline=None, mod
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--draft", required=True)
+    p.add_argument("--draft", default="latest")
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--artwork", help="Owned/licensed local artwork path")
     group.add_argument("--auto-cover", action="store_true", help="Download story-cover candidate from the chosen draft")

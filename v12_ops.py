@@ -96,6 +96,14 @@ def run(limit=1, day=None, outdir="output/v12", discover_fn=None, campaign_fn=No
         "report_path": str(root / "daily_report.json"),
         "issues_count": len(result["issues"]),
     })
+    if result["status"] == "failed":
+        try:
+            from v12_alerts import report_alert
+            result["alert_status"] = report_alert(result["status"], result["issues"])
+        except (RuntimeError, ValueError):
+            # Notifications must never hide the primary automation problem.
+            result["alert_status"] = "delivery_failed"
+        write_json(root / "daily_report.json", result)
     return result
 
 

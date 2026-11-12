@@ -127,7 +127,7 @@ If a Meta call errors or its result is ambiguous, inspect `data/campaign_state_v
 Set a **once-daily cron job** using an absolute path to your actual repository on Oracle:
 
 ```cron
-10 8 * * * /home/ubuntu/cartoon-tamilan-automation/run_campaign_daily_v9.sh
+10 8 * * * /usr/bin/bash /home/ubuntu/cartoon-tamilan-automation/run_campaign_daily_v9.sh
 ```
 
 This example time is **server-local**, not necessarily Indian Standard Time. Verify with `date` and your server timezone. Start with a daily dry run; activate publishing only after reviewing an actual one-post live test.

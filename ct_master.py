@@ -53,6 +53,18 @@ def main(argv=None):
     sub.add_parser("weekly", help="Real-data weekly marketing review")
     sub.add_parser("status", help="Print last V13 dry-run report summary")
 
+    # V14 is an explicit, preview-only, full-story video workflow.
+    story_video = sub.add_parser(
+        "story-video", help="Create a reviewed 60–120s multi-scene video (never publish)"
+    )
+    story_video.add_argument("--storyboard", required=True)
+    story_video.add_argument("--outdir", default="output/v14/story_video")
+    source = story_video.add_mutually_exclusive_group(required=True)
+    source.add_argument("--audio", help="Approved WAV/MP3/M4A voice recording")
+    source.add_argument("--tts", choices=("azure", "espeak"))
+    story_video.add_argument("--speech-rate", default="-5%")
+    story_video.add_argument("--rights-confirmed", action="store_true", required=True)
+
     args = parser.parse_args(argv)
     if args.command in ("preview", "campaign"):
         if args.voice and not args.video:
@@ -91,6 +103,13 @@ def main(argv=None):
             unsubscribe_url=os.getenv("CT_UNSUBSCRIBE_URL", ""),
             sender_address=os.getenv("CT_SENDER_POSTAL_ADDRESS", ""))
         print(json.dumps(send_one(payload, args.recipient, approved=args.send)))
+    elif args.command == "story-video":
+        from ctos.story_video_v14 import build_full_story
+        result = build_full_story(
+            args.storyboard, args.outdir, audio=args.audio, tts=args.tts,
+            rights_confirmed=args.rights_confirmed, speech_rate=args.speech_rate,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "weekly":
         result = prepare_weekly()
         print(json.dumps(result, indent=2, ensure_ascii=False))

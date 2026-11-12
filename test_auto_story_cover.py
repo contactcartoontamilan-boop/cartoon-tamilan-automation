@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from auto_story_cover import cover_from_html, image_candidate, load_draft, auto_cover
+from auto_story_cover import cover_from_html, image_candidate, load_draft, auto_cover, resolve_draft
 
 
 class AutoCoverTests(unittest.TestCase):
@@ -17,6 +17,14 @@ class AutoCoverTests(unittest.TestCase):
         html = '<section class="story-cover"><img data-src="/media/book.webp"></section>'
         self.assertEqual(cover_from_html(html, "https://cartoontamilan.in/story"),
                          "https://cartoontamilan.in/media/book.webp")
+
+    def test_lazy_loaded_cover(self):
+        html = '<div class="novel-cover"><img data-original="/media/lazy.jpg"></div>'
+        self.assertEqual(cover_from_html(html, "https://cartoontamilan.in/story"), "https://cartoontamilan.in/media/lazy.jpg")
+
+    def test_srcset_last_image(self):
+        html = '<article><img srcset="/small.jpg 400w, /large.jpg 1200w"></article>'
+        self.assertEqual(cover_from_html(html, "https://cartoontamilan.in/story"), "https://cartoontamilan.in/large.jpg")
 
     def test_external_image_rejected(self):
         self.assertIsNone(image_candidate("https://untrusted.example/cover.jpg",
@@ -41,6 +49,20 @@ class AutoCoverTests(unittest.TestCase):
             self.assertEqual(result.suffix, ".png")
             self.assertTrue(result.with_suffix(".rights.json").exists())
             download.assert_called_once()
+
+    def test_resolve_latest_story(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "output"
+            folder.mkdir()
+            (folder / "a.json").write_text(json.dumps({"item": {"kind": "story", "link": "https://cartoontamilan.in/story"}}))
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(temp)
+                self.assertEqual(resolve_draft("latest"), "output/a.json")
+            finally:
+                os.chdir(old)
 
     def test_no_image_reports_error(self):
         with tempfile.TemporaryDirectory() as temp:

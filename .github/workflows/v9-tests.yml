@@ -1,4 +1,4 @@
-name: CartoonTamilan V9 tests
+name: CartoonTamilan V9-V10 tests
 on:
   push:
     branches: [main]
@@ -30,4 +30,4 @@ jobs:
         run: python -m compileall -q .
       - name: Run safe, offline unit tests
         run: |
-          python -m unittest test_campaign_v9.py test_cinematic_v9.py test_story_marketing.py test_review_posters.py test_poster.py test_auto_story_cover.py test_assets.py -v
+          python -m unittest test_premium_v10.py test_story_context_v10.py test_campaign_v9.py test_cinematic_v9.py test_story_marketing.py test_review_posters.py test_poster.py test_auto_story_cover.py test_assets.py -v

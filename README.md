@@ -62,3 +62,23 @@ bash setup_oracle_v12.sh
 ```
 
 **Required external integrations are NOT automatically connected by merely uploading code:** AI artwork model/inference, Meta Page+Instagram token and public-media origin, Google OAuth permission, premium video/TTS models, and YouTube/Threads/Pinterest publishing credentials.
+
+## V13 — CartoonTamilan Marketing OS (latest)
+
+- **[V13 master setup + command guide](README_V13_MARKETING_OS.md)**
+- `ct_master.py campaign --limit 1` creates 10 platform-specific JPGs from
+  original clean artwork (never a pre-typeset poster), bilingual copy,
+  hashtag/content drafts, email newsletter drafts, safety review bundles and a
+  14-day calendar. Add `--video --voice` for an MP4 still-art teaser and basic
+  local Tamil WAV voice, if FFmpeg / espeak-ng are installed.
+- `bash setup_oracle_v13.sh` on the **Oracle SSH terminal**, after verifying
+  V13 regression tests, enables preview-only draft creation at existing
+  08:30 IST and V11 GitHub auto-sync checks (~5 minutes).
+- Android **Termux only**: `bash phone_gallery_sync_v13.sh` transfers preview
+  JPG/MP4 files to Pictures/CartoonTamilanV13 without deleting older images.
+- **Nothing publishes live by default**. Gated Meta FB/Instagram and Telegram
+  adapters require specific approvals and secrets. Other platforms produce
+  **draft exports only** until their OAuth upload integrations are built.
+- Real generative 3D-looking anime art requires a configured AI inference model;
+  Oracle A1 CPU does not have a GPU. Technical dimension checks do not
+  guarantee 100% artwork/story-language correctness.

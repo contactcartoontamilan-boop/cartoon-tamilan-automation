@@ -26,3 +26,10 @@ data/comments_v12.csv
 data/official_sources_v12.json
 data/*credentials*.json
 data/*tokens*.json
+
+# V13 opt-in email subscriber list and exact media review states
+data/subscribers_v13.csv
+data/ct_v13_approvals.json
+data/ct_v13_approvals.json.tmp
+data/*.sqlite3
+data/*private*.csv

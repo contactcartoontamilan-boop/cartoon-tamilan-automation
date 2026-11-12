@@ -135,7 +135,7 @@ class V13Tests(unittest.TestCase):
     def test_video_requires_audio_rights_before_ffmpeg(self):
         with self.assertRaises(PermissionError):
             create_short(self.clean, self.root / "video",
-                         script="An original introduction", voice=True)
+                         script="An original introduction", use_tts=True, voice_rights=False)
 
 
 if __name__ == "__main__":

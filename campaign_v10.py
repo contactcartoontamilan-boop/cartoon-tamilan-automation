@@ -13,6 +13,7 @@ from pathlib import Path
 from campaign_v9 import create_campaign, run as run_v9, write_json
 from premium_poster_v10 import make_premium_poster
 from art_direction_v10 import concept_prompt
+from social_copy_v10 import premium_copy
 
 ART_MODES = ("cover", "comfyui")
 THEMES = ("royal", "crimson", "cosmic", "emerald")
@@ -68,6 +69,8 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
     if premium != original:
         original.replace(premium)
     pack["poster"] = str(premium)
+    copy = premium_copy(item, approval, art_mode=art_mode)
+    pack.update(copy)
     pack["art_prompt"] = prompt
     pack["visual_theme"] = theme
     pack["actual_new_art_generated"] = art_mode == "comfyui"

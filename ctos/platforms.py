@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from datetime import date
 from pathlib import Path
 
 import requests
 
-from campaign_v9 import get_approval, load_approvals, publish_pack
+from campaign_v9 import (get_approval, load_approvals, publish_pack,
+                         read_json, write_json, campaign_lock)
 from ctos.review import require_approval
 
 PLATFORM_IMAGE = {
@@ -94,21 +96,38 @@ def publish_telegram(manifest_path, live=False, session=None):
     img = (Path(manifest_path).parent / data["assets"]["instagram_feed"]).resolve()
     # Telegram captions have their own limit; the full social copy stays in exports.
     caption = data["copy"]["captions"]["telegram"][:900]
-    try:
-        with img.open("rb") as media:
-            response = (session or requests).post(
-                "https://api.telegram.org/bot" + token + "/sendPhoto",
-                data={"chat_id": chat_id, "caption": caption},
-                files={"photo": ("story.jpg", media, "image/jpeg")},
-                timeout=45,
-            )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("ok") is not True:
-            raise RuntimeError("Telegram rejected publication")
-    except requests.RequestException:
-        raise RuntimeError("Telegram publication status uncertain; check channel before retry (secrets hidden)") from None
-    return {"channel": "telegram", "status": "published", "id": payload.get("result", {}).get("message_id")}
+    from ctos.review import sha_file
+    key = hashlib.sha256((chat_id + "|" + sha_file(manifest_path)).encode("utf-8")).hexdigest()
+    journal = Path("data/ct_v13_telegram_journal.json")
+    # Same indeterminate-result protection as Meta: once attempted, never
+    # silently retry without manually reconciling the channel.
+    with campaign_lock():
+        history = read_json(journal, {})
+        if key in history:
+            return {"channel": "telegram", "status": history[key]["status"],
+                    "note": "Previously attempted; inspect Telegram before any manual retry"}
+        history[key] = {"status": "inflight"}
+        write_json(journal, history)
+        try:
+            with img.open("rb") as media:
+                response = (session or requests).post(
+                    "https://api.telegram.org/bot" + token + "/sendPhoto",
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"photo": ("story.jpg", media, "image/jpeg")},
+                    timeout=45,
+                )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("ok") is not True:
+                raise RuntimeError("Telegram rejected publication")
+            history[key] = {"status": "published",
+                            "id": str(payload.get("result", {}).get("message_id", ""))}
+            write_json(journal, history)
+            return {"channel": "telegram", **history[key]}
+        except Exception:
+            history[key] = {"status": "uncertain"}
+            write_json(journal, history)
+            raise RuntimeError("Telegram publication uncertain; check channel, no automatic retry") from None
 
 
 def publish_platform(manifest_path, platform, *, live=False):

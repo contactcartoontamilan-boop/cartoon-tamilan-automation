@@ -33,12 +33,15 @@ Run these on the **Oracle SSH shell**, not local Android Termux:
 
     cd ~/cartoon-tamilan-automation
     git fetch origin feature/v14-story-video-voice-qa
-    git switch feature/v14-story-video-voice-qa
+    git worktree add -b v14-local-test ~/cartoon-tamilan-v14-test origin/feature/v14-story-video-voice-qa
+    cd ~/cartoon-tamilan-v14-test
     sudo apt-get update
     sudo apt-get install -y ffmpeg fonts-noto-core libraqm0
+    python3 -m venv .venv
     .venv/bin/python -m pip install -r requirements.txt
     .venv/bin/python -m unittest test_ct_v14.py -v
 
+The separate worktree avoids changing the production checkout or V13 timers.
 Do not merge or deploy before GitHub CI and human review.
 
 Create a private UTF-8 script containing a **real approved 70–340 word
@@ -111,7 +114,7 @@ V13 phone-side gallery sync is unchanged. To pull V14 MP4 manually from
 
     mkdir -p ~/storage/movies/CartoonTamilanV14
     scp -i ~/.ssh/oracle_key \
-      ubuntu@YOUR_ORACLE_HOST:cartoon-tamilan-automation/output/v14/female_test/story_9x16.mp4 \
+      ubuntu@YOUR_ORACLE_HOST:cartoon-tamilan-v14-test/output/v14/female_test/story_9x16.mp4 \
       ~/storage/movies/CartoonTamilanV14/
 
 Replace YOUR_ORACLE_HOST with your own Oracle host. If SSH key permissions
@@ -129,7 +132,7 @@ or path differ, use the working V13 Termux SSH configuration.
 
 ## Safe rollback
 
-Switch back to your previous branch or main after review. This branch does
-not alter existing timers or .env. Do not run git pull --ff-only from a
-feature branch expecting it to update main. Keep generated outputs and
+Use the isolated test worktree; leave the production main checkout alone.
+This branch does not alter existing timers or .env. Do not run git pull
+--ff-only in the production checkout to try to install V14. Keep generated outputs and
 private narration/artwork out of GitHub.

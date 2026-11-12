@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
-from auto_story_marketing import discover_from_html, build
+from auto_story_marketing import discover_from_html, build, clean_story_title, poster_headline
 
 HTML = """
 <html><body>
@@ -19,6 +19,10 @@ HTML = """
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_clean_story_title(self):
+        self.assertEqual(clean_story_title("வியூகம்: நட்சத்திரங்களின் பாதை Completed · CT Admin Adventure"), "வியூகம்: நட்சத்திரங்களின் பாதை")
+        self.assertLessEqual(len(poster_headline("ஒரு நீண்ட கதையின் பெயர் " * 20)), 90)
+
     def test_finds_only_story_cards(self):
         items = discover_from_html(HTML)
         self.assertEqual(len(items), 2)

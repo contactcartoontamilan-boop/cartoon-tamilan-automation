@@ -142,3 +142,19 @@ This example time is **server-local**, not necessarily Indian Standard Time. Ver
 ## Instagram profile link requirement
 
 Instagram feed captions do not turn ordinary URLs into clickable links. Before public publishing, verify that your Instagram profile link actually points to CartoonTamilan.in or your working reader landing page. V9 creates a UTM-tracked Instagram URL in the JSON output, but does not edit your Instagram bio for you.
+
+
+## V9.1 poster design fix — based on your two test screenshots
+
+Review of the first academy poster showed the source cover's **old Tamil headline ghosting through** behind the new title. The second fantasy poster had better visual separation and readable Tamil typography.
+
+`cinematic_poster_v9.py` now applies a fully opaque dark matte **from y=730 to the bottom** with a gradual fade from y=515; the fresh story title card moves to y=790–1110 and the CTA to y=1140–1234. This deliberately masks any source title printed within the lower section, avoids double-lettering, and tightens spacing. The top character artwork is preserved as much as practical. If a source cover has lettering above y=730, the source should be cropped/edited manually or replaced with original text-free artwork.
+
+**Existing downloaded JPGs are not magically updated**. Run:
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_cinematic_v9.py test_campaign_v9.py -v
+python campaign_v9.py --limit 2 --export-dir ~/storage/downloads/CartoonTamilanV9
+```
+Then open both new JPEGs in Downloads > CartoonTamilanV9 to verify all faces and Tamil text. This is a local poster preview, not a social post. `dry_run` must remain true until approvals and Meta integration are actually complete.

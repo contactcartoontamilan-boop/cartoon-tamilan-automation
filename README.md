@@ -43,3 +43,22 @@ systemctl list-timers --all cartoontamilan-autosync-v11.timer
 ```
 
 Do not commit credentials or private SSH keys into GitHub. Use full setup and rollback instructions in [V11 documentation](README_ORACLE_AUTOSYNC_V11.md).
+
+## V12 advanced marketing upgrade (latest)
+
+- [V12 complete development/setup guide](README_V12_ADVANCED_MARKETING.md)
+- `v12_ops.py` orchestrates a safe daily marketing draft, original-story calendar, premium posters, SEO, analytics and health.
+- `v12_cli.py` runs optional original chapter reading, local narrator, FFmpeg Reel, verified official RSS, Google GA4/Search Console/PageSpeed, comment moderation and weekly reports.
+- [V12 Oracle installer](setup_oracle_v12.sh): once installed, retains daily 08:30 IST and adds weekly Monday 09:00 IST reviews. Live Meta publishing remains disabled.
+- [V11 GitHub → Oracle updater](README_ORACLE_AUTOSYNC_V11.md): updates only once its separate auto-sync timer has been installed on Oracle.
+
+To adopt after verifying SSH login:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull --ff-only
+.venv/bin/python -m unittest test_v12.py test_v12_google.py test_v12_voice.py -v
+bash setup_oracle_v12.sh
+```
+
+**Required external integrations are NOT automatically connected by merely uploading code:** AI artwork model/inference, Meta Page+Instagram token and public-media origin, Google OAuth permission, premium video/TTS models, and YouTube/Threads/Pinterest publishing credentials.

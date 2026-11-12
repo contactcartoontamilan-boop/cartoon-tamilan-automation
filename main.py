@@ -112,12 +112,12 @@ def make_caption(item):
     )
 
 
-def save_draft(item, caption):
+def save_draft(item, caption, selected_media=None):
     OUTPUT_DIR.mkdir(exist_ok=True)
     filename = f'{item["id"][:16]}.json'
     path = OUTPUT_DIR / filename
     path.write_text(
-        json.dumps({"item": item, "caption": caption}, ensure_ascii=False, indent=2),
+        json.dumps({"item": item, "caption": caption, "selected_media": selected_media}, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
     return path
@@ -158,21 +158,24 @@ def main():
     new_items = [item for item in items if item["id"] not in seen]
     logging.info("Collected %d items; %d are new.", len(items), len(new_items))
 
-    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
-    publish_fb = os.getenv("PUBLISH_FACEBOOK", "false").lower() == "true"
-
     # Limit each run so one feed burst cannot flood social accounts.
     for item in new_items[:5]:
         caption = make_caption(item)
-        draft_path = save_draft(item, caption)
+        selected_media = None
+        try:
+            from asset_selector import choose_asset
+            selected_media = choose_asset(item, config.get("site_url", ""), enable_openverse=False)
+        except Exception:
+            logging.warning("Image lookup failed; draft is text-only.", exc_info=True)
+        draft_path = save_draft(item, caption, selected_media=selected_media)
         logging.info("Draft saved: %s", draft_path)
 
         # Shared publisher handles Facebook and Instagram flags independently.
         # Instagram is skipped unless the feed supplied a public image URL.
         try:
             from social.publisher import publish_item
-            media = {"type": "image", "url": item["image_url"]} if item.get("image_url") else None
-            results = publish_item(item, caption, media=media)
+            # Candidate artwork must be reviewed before publishing.
+            results = publish_item(item, caption, media=None)
             logging.info("Social publishing result: %s", results)
         except Exception:
             logging.exception("Social publishing failed; draft remains saved.")

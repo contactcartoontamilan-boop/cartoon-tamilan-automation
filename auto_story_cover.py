@@ -72,6 +72,20 @@ def resolve_draft(path):
     raise FileNotFoundError("No original story draft in output/. Run python main.py or pass --draft PATH.")
 
 
+def draft_from_story_url(url, title=""):
+    """Make a local draft for an explicitly selected original novel/story page."""
+    if not same_site(url, SITE):
+        raise ValueError("Story URL must be HTTPS on CartoonTamilan.in")
+    stem = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    folder = Path("output/story_inputs")
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (stem + ".json")
+    item = {"kind": "story", "id": stem, "link": url,
+            "title": (title or "CartoonTamilan Original Story").strip()}
+    path.write_text(json.dumps({"item": item}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(path)
+
+
 def load_draft(path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     item = data.get("item", {})
@@ -149,11 +163,18 @@ def diagnose(draft_path):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--draft", default="latest")
+    p.add_argument("--story-url", help="Exact ORIGINAL novel page URL; safer than RSS auto-classification")
+    p.add_argument("--story-title", help="Optional actual novel name for poster")
     p.add_argument("--outdir", default="output/covers")
     p.add_argument("--poster", action="store_true")
     p.add_argument("--diagnose", action="store_true", help="Print page image metadata; no download")
     p.add_argument("--headline", default="புதிய தமிழ் கதை")
     args = p.parse_args()
+    if args.story_url:
+        try:
+            args.draft = draft_from_story_url(args.story_url, args.story_title or "")
+        except (ValueError, OSError) as exc:
+            p.exit(2, "Invalid story URL: " + str(exc) + "\n")
     if args.diagnose:
         try:
             diagnose(args.draft)

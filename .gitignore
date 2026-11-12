@@ -3,3 +3,7 @@
 __pycache__/
 *.py[cod]
 output/
+
+# Real traffic exports may contain sensitive analytics data
+data/analytics_daily.csv
+data/analytics_*.csv

@@ -13,3 +13,6 @@ data/story_approvals_v9.json
 data/campaign_state_v9.json
 data/campaign_v9.lock
 data/*.tmp
+
+# Local automation runtime logs
+logs/

@@ -55,4 +55,3 @@ if __name__ == "__main__":
                       "social": result["social_to_site_report"].get("status"),
                       "next_actions": result["next_actions"]},
                      ensure_ascii=False, indent=2))
-;

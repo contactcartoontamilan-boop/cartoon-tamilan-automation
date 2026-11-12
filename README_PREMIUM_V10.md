@@ -98,3 +98,25 @@ The script enables Meta API publishing only if server environment explicitly def
 - The homepage catalogue is an HTML parser and may miss stories if the site UI changes.
 - Website synopsis extraction cannot prove a full novel was read; prompts use metadata conservatively and do not invent canonical characters.
 - Auto-publishing social posts alone does not guarantee meaningful reader acquisition; measure actual website sessions, chapter read-through, GA4/Search Console performance, not vanity views.
+
+
+## V10.1 verified story bible integration
+
+The creative pipeline now supports `story_bible_v10.py` and the private
+`data/story_bibles_v10.json` catalogue of **verified** novel visuals:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_premium_v10.py test_story_bible_v10.py test_story_context_v10.py -v
+python story_bible_v10.py
+python campaign_v10.py --limit 2 --art-mode cover --export-dir ~/storage/downloads/CartoonTamilanV10
+```
+
+Verify story synopsis, character appearances, and world details using actual source chapters before marking an entry `verified: true`. The new optional ComfyUI mode reads verified entries for character consistency. If unverified, source synopsis is treated as unreviewed context and the creative is a conceptual promo, not a factual depiction of a chapter.
+
+`data/story_bibles_v10.json` is gitignored, like Meta secrets and publishing approvals; never publish private story notes unintentionally.
+
+**Live posting stays OFF by default.** Local image preview is not a successful Meta post. Until account permissions, public HTTPS image hosting, rights, and reviewed copy are configured, only use commands without `--publish`.
+
+Test the illustrated V10 poster first; the quality of newly generated **original** AI anime artwork requires ComfyUI, a real model checkpoint and adequate compute. A 12 GB CPU-only Oracle server should not be assumed to deliver unlimited free image generation.

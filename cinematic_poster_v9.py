@@ -18,6 +18,24 @@ PALETTES = {
 }
 
 
+def mask_cover_titles(image, fade_start=515, solid_start=730, color=(10, 8, 31)):
+    """Hide printed cover text in lower artwork while retaining faces above.
+
+    From solid_start down, the original cover pixels must be fully concealed.
+    Covers with lettering above solid_start still require a clean source image.
+    """
+    w, h = image.size
+    solid_start = min(max(solid_start, fade_start + 1), h)
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    for y in range(fade_start, solid_start):
+        progress = (y - fade_start) / (solid_start - fade_start)
+        alpha = min(255, round(255 * progress ** 0.75))
+        draw.line((0, y, w, y), fill=(*color, alpha))
+    draw.rectangle((0, solid_start, w, h), fill=(*color, 255))
+    return Image.alpha_composite(image.convert("RGBA"), overlay)
+
+
 def cinematic_poster(draft_path, artwork, destination, palette="purple"):
     require_tamil_shaping()
     if palette not in PALETTES:
@@ -40,13 +58,10 @@ def cinematic_poster(draft_path, artwork, destination, palette="purple"):
     canvas = Image.new("RGB", (w, h), (12, 9, 33))
     canvas.paste(image, (0, 60))
     canvas = ImageEnhance.Color(canvas).enhance(1.14)
-    # Fade lower key art to a clean space for story typography.
-    layer = Image.new("RGBA", (w, h))
-    pen = ImageDraw.Draw(layer)
-    for y in range(590, 1210):
-        a = int(253 * ((y - 590) / 620) ** .8)
-        pen.line((0, y, w, y), fill=(10, 8, 31, a))
-    canvas = Image.alpha_composite(canvas.convert("RGBA"), layer)
+    # Existing novel covers often have the title printed in the lower half.
+    # A translucent title card alone cannot hide those old glyphs. Finish
+    # the key-art area with a completely opaque matte before adding text.
+    canvas = mask_cover_titles(canvas)
 
     primary, secondary = PALETTES[palette]
     glow = Image.new("RGBA", (w, h))
@@ -65,7 +80,7 @@ def cinematic_poster(draft_path, artwork, destination, palette="purple"):
     d.rounded_rectangle((760, 127, 1029, 187), radius=25, fill=(*primary, 235))
     d.text((785, 145), "ORIGINAL STORY", font=font_at(en, 25), fill="#ffffff")
 
-    d.rounded_rectangle((62, 890, 1018, 1162), radius=34, fill=(13, 10, 38, 195),
+    d.rounded_rectangle((62, 790, 1018, 1110), radius=34, fill=(13, 10, 38, 245),
                         outline=(*primary, 240), width=4)
     # Fit up to 3 title rows, truncating no Tamil words.
     chosen = None
@@ -75,23 +90,23 @@ def cinematic_poster(draft_path, artwork, destination, palette="purple"):
             rows = lines_for(d, title, font, 866)
         except ValueError:
             continue
-        if len(rows) <= 3 and len(rows) * (size + 19) <= 230:
+        if len(rows) <= 4 and len(rows) * (size + 19) <= 282:
             chosen = (font, rows, size)
             break
     if not chosen:
         raise ValueError("Story headline too long; shorten the title before publishing")
     font, rows, size = chosen
     row_height = size + 19
-    top = 916 + (220 - len(rows) * row_height) // 2
+    top = 814 + (272 - len(rows) * row_height) // 2
     for row in rows:
         d.text((96, top), row, font=font, fill="#fff8f9", stroke_width=2,
                stroke_fill=(36, 15, 69))
         top += row_height
 
-    d.rounded_rectangle((145, 1183, 935, 1273), radius=37, fill=(*secondary, 255))
+    d.rounded_rectangle((145, 1140, 935, 1234), radius=37, fill=(*secondary, 255))
     cta = "READ THE STORY  >>"
-    d.text((220, 1201), cta, font=font_at(en, 44), fill="#ffffff", stroke_width=1)
-    d.text((320, 1300), "cartoontamilan.in", font=font_at(en, 29), fill="#ece7ff")
+    d.text((220, 1163), cta, font=font_at(en, 44), fill="#ffffff", stroke_width=1)
+    d.text((320, 1286), "cartoontamilan.in", font=font_at(en, 29), fill="#ece7ff")
     dest = Path(destination)
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.convert("RGB").save(dest, "JPEG", quality=92, optimize=True)

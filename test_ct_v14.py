@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import tempfile
 import unittest
 import wave
@@ -110,6 +111,22 @@ class V14OfflineTests(unittest.TestCase):
                                   visual_reviewed=False))
         with self.assertRaises(PermissionError):
             make_story_video([], [], self.root / "video.mp4")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg not installed")
+    def test_real_60_second_video_smoke_at_low_resolution(self):
+        images = []
+        for i in range(6):
+            path = self.root / f"frame_{i}.png"
+            Image.new("RGB", (512, 512), (i * 30, 50, 100)).save(path)
+            images.append(path)
+        result = make_story_video(
+            images, [10.0] * 6, self.root / "smoke.mp4",
+            rights_confirmed=True, size=(160, 240), fps=2)
+        self.assertTrue((self.root / "smoke.mp4").is_file())
+        self.assertGreaterEqual(result["duration_seconds"], 59)
+        self.assertLessEqual(result["duration_seconds"], 61)
+        self.assertFalse(result["published"])
 
     def test_duration_gate_before_ffmpeg(self):
         with self.assertRaisesRegex(ValueError, "60–120"):

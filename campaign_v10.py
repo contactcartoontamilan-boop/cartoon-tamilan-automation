@@ -13,6 +13,7 @@ from pathlib import Path
 from campaign_v9 import create_campaign, run as run_v9, write_json
 from premium_poster_v10 import make_premium_poster
 from art_direction_v10 import concept_prompt
+from story_context_v10 import read_synopsis
 from social_copy_v10 import premium_copy
 
 ART_MODES = ("cover", "comfyui")
@@ -28,7 +29,8 @@ def _theme_for(record):
 
 def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v10",
                            approval=None, publish=False, cover_fetcher=None,
-                           image_generator=None, poster_maker=None):
+                           image_generator=None, poster_maker=None,
+                           synopsis_fetcher=None):
     """Build ONE reviewed, trackable Instagram/Facebook campaign draft."""
     if art_mode not in ART_MODES:
         raise ValueError("Use art_mode cover or comfyui")
@@ -42,8 +44,15 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
     genre = ((record.get("genres") or ["unverified"])[0] or "unverified")
     theme = _theme_for(record)
     style = os.getenv("ART_STYLE", "anime")
+    synopsis = ""
+    if art_mode == "comfyui" and os.getenv("USE_SITE_SYNOPSIS", "true").lower() == "true":
+        try:
+            synopsis = (synopsis_fetcher or read_synopsis)(item["link"])
+        except Exception:
+            # A site synopsis is optional, not grounds to invent story details.
+            synopsis = ""
     prompt = concept_prompt(
-        item["title"], genre=genre,
+        item["title"], genre=genre, synopsis=synopsis,
         character_notes=record.get("verified_character_notes", ""),
         world_notes=record.get("verified_world_notes", ""),
         style=style)
@@ -72,6 +81,8 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
     copy = premium_copy(item, approval, art_mode=art_mode)
     pack.update(copy)
     pack["art_prompt"] = prompt
+    pack["site_synopsis_excerpt"] = synopsis
+    pack["synopsis_is_editorially_verified"] = False
     pack["visual_theme"] = theme
     pack["actual_new_art_generated"] = art_mode == "comfyui"
     pack["art_generation_backend"] = "ComfyUI" if art_mode == "comfyui" else "website_cover"

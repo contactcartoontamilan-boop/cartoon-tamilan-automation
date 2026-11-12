@@ -29,6 +29,26 @@ def _bearer(token):
     return {"Authorization": "Bearer " + token}
 
 
+def refresh_google_token(client_id, client_secret, refresh_token, session=None):
+    """Exchange an existing user-consented OAuth refresh token for read-only access."""
+    if not all((client_id, client_secret, refresh_token)):
+        raise ValueError("OAuth client ID, client secret and refresh token are required")
+    response = (session or requests).post(
+        "https://oauth2.googleapis.com/token",
+        data={"client_id": client_id, "client_secret": client_secret,
+              "refresh_token": refresh_token, "grant_type": "refresh_token"},
+        timeout=20,
+    )
+    try:
+        response.raise_for_status()
+        token = response.json().get("access_token", "")
+    except requests.RequestException:
+        raise RuntimeError("Google OAuth refresh failed; details hidden to protect credentials") from None
+    if not token:
+        raise RuntimeError("OAuth refresh response contains no access token")
+    return token
+
+
 def ga4_daily_pageviews(property_id, access_token, start, end, session=None):
     """Actual GA4 reported website/app pageview metric, grouped by date."""
     _valid_range(start, end)

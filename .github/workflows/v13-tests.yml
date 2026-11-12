@@ -1,5 +1,14 @@
 name: CartoonTamilan Marketing OS V13 validation
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'ctos/**'
+      - 'ct_master.py'
+      - 'test_ct_v13.py'
+      - 'setup_oracle_v13.sh'
+      - 'phone_gallery_sync_v13.sh'
+      - '.github/workflows/v13-tests.yml'
   pull_request:
     branches: [main]
     paths:

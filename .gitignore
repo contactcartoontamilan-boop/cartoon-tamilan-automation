@@ -19,3 +19,10 @@ logs/
 
 # Verified original character profiles and chapter notes
 data/story_bibles_v10.json
+
+# V12 private analytics, publishing rights and engagement exports
+data/campaign_metrics_v12.csv
+data/comments_v12.csv
+data/official_sources_v12.json
+data/*credentials*.json
+data/*tokens*.json

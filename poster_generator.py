@@ -1,4 +1,4 @@
-"""CartoonTamilan V2: quality-gated bilingual posters and Tamil memes.
+"""CartoonTamilan V8: quality-gated editorial posters and Tamil memes.
 
 Uses only user-owned/licensed artwork; never substitutes geometric placeholders.
 Requires Pillow with RAQM for correctly shaped Tamil and a Tamil-capable font.
@@ -86,43 +86,72 @@ def make_poster(draft_path, destination, font_path=None, artwork=None,
     if not art_path.is_file():
         raise FileNotFoundError("Artwork missing: " + str(art_path))
 
+    # V8 editorial composition: top-weighted cover, masked lower-cover labels,
+    # clear brand header, spacious responsive headline, compact CTA.
     w, h = 1080, 1350
-    img = Image.new("RGB", (w, h), "#101529")
+    bg = "#0d1429"
+    img = Image.new("RGB", (w, h), bg)
+    cover_top, cover_height = 104, 840
     with Image.open(art_path) as opened:
         art = opened.convert("RGB")
-        target_w, target_h = 1080, 790
-        scale = max(target_w / art.width, target_h / art.height)
-        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.Resampling.LANCZOS)
-        left = (art.width - target_w) // 2
-        top = (art.height - target_h) // 2
-        img.paste(art.crop((left, top, left + target_w, top + target_h)), (0, 0))
+        scale = max(w / art.width, cover_height / art.height)
+        resized = art.resize((round(art.width * scale), round(art.height * scale)),
+                            Image.Resampling.LANCZOS)
+        crop_x = (resized.width - w) // 2
+        # Favor the top of portrait covers, keeping faces visible.
+        crop_y = round((resized.height - cover_height) * 0.18)
+        crop = resized.crop((crop_x, crop_y, crop_x + w, crop_y + cover_height))
+        img.paste(crop, (0, cover_top))
+
+    # Covers sometimes include printed source titles or badges along their lower
+    # area. Hide that area under a smooth dark gradient rather than layering more
+    # copy on top. Embedded text in the upper half still needs manual review.
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    fade_draw = ImageDraw.Draw(overlay)
+    fade_start, fade_end = 570, 944
+    for y in range(fade_start, fade_end + 1):
+        fraction = (y - fade_start) / (fade_end - fade_start)
+        alpha = round(255 * min(1.0, fraction ** 0.85))
+        fade_draw.line((0, y, w, y), fill=(13, 20, 41, alpha))
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
     draw = ImageDraw.Draw(img)
-    draw.rectangle((0, 0, 1080, 105), fill="#101529")
-    draw.text((56, 23), "CartoonTamilan", font=font_at(english_path, 47), fill="#ffffff")
-    label = {"story": "ORIGINAL STORY", "meme": "TAMIL ANIME MEME", "news": "ANIME NEWS"}[mode]
-    draw.rounded_rectangle((54, 815, 1026, 886), radius=17, fill="#e8b960")
-    draw.text((82, 831), label, font=font_at(english_path, 29), fill="#151a2b")
+    draw.rectangle((0, 0, w, 104), fill=bg)
+    draw.text((54, 25), "CartoonTamilan",
+              font=font_at(english_path, 43), fill="#ffffff")
+    draw.text((785, 42), "ORIGINALS",
+              font=font_at(english_path, 23), fill="#eac16f")
 
-    # For mixed scripts, use a Tamil-capable font and RAQM; explicit review still required.
+    label = {"story": "ORIGINAL STORY", "meme": "TAMIL ANIME MEME",
+             "news": "ANIME NEWS"}[mode]
+    draw.rounded_rectangle((54, 892, 477, 948), radius=19, fill="#e9bc67")
+    draw.text((81, 905), label,
+              font=font_at(english_path, 26), fill="#141a2d")
+
+    # Fit story headlines into a fixed safe zone. Center short titles instead
+    # of leaving a huge empty gulf between the title and CTA button.
+    available_top, available_bottom = 966, 1220
     chosen = None
-    for size in range(54, 31, -2):
+    for size in range(60, 31, -2):
         font = font_at(tamil_path, size)
-        rows = lines_for(draw, title, font, 960)
-        if len(rows) <= 4:
-            chosen = (font, rows, size)
+        rows = lines_for(draw, title, font, 966)
+        step = size + 16
+        if 1 <= len(rows) <= 4 and len(rows) * step <= available_bottom - available_top:
+            chosen = (font, rows, size, step)
             break
     if chosen is None:
-        raise ValueError("Headline too long. Use --headline with a concise, reviewed Tamil hook.")
-    font, rows, size = chosen
-    y = 917
+        raise ValueError("Headline too long for a professional poster. Supply a shorter --headline.")
+    font, rows, size, step = chosen
+    line_height = len(rows) * step
+    y = available_top + ((available_bottom - available_top - line_height) // 2)
     for row in rows:
-        draw.text((60, y), row, font=font, fill="#ffffff")
-        y += size + 18
+        draw.text((57, y), row, font=font, fill="#ffffff")
+        y += step
 
-    draw.rounded_rectangle((55, 1234, 1025, 1318), radius=17, fill="#e8b960")
-    draw.text((84, 1255), "READ MORE  |  cartoontamilan.in",
-              font=font_at(english_path, 29), fill="#151a2b")
+    draw.rounded_rectangle((54, 1240, 1026, 1323), radius=23, fill="#e9bc67")
+    draw.text((85, 1262), "READ THE STORY  |  cartoontamilan.in",
+              font=font_at(english_path, 30), fill="#141a2d")
+
     target = Path(destination)
     target.parent.mkdir(parents=True, exist_ok=True)
     img.save(target, format="PNG")

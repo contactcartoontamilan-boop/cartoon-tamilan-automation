@@ -39,7 +39,7 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
         if art_mode == "comfyui" and record.get("v10_automatic_ai_approved") is not True:
             raise ValueError("AI art autopublishing requires v10_automatic_ai_approved=true")
 
-    genre = ((record.get("genres") or ["fantasy"])[0] or "fantasy")
+    genre = ((record.get("genres") or ["unverified"])[0] or "unverified")
     theme = _theme_for(record)
     style = os.getenv("ART_STYLE", "anime")
     prompt = concept_prompt(

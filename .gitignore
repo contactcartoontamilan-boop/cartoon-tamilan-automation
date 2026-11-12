@@ -7,3 +7,9 @@ output/
 # Real traffic exports may contain sensitive analytics data
 data/analytics_daily.csv
 data/analytics_*.csv
+
+# V9 rights approval and publication state are private
+data/story_approvals_v9.json
+data/campaign_state_v9.json
+data/campaign_v9.lock
+data/*.tmp

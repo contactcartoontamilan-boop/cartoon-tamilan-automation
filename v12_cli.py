@@ -17,6 +17,7 @@ from v12_story_reader import collect_chapters, save_chapters, draft_with_local_a
 from v12_media import create_variants, make_reel
 from v12_engagement import draft_replies
 from v12_weekly import prepare_weekly
+from v12_voice import synthesize, srt_from_script
 from v12_google import (ga4_daily_pageviews, export_ga4_csv, search_console_queries,
                         pagespeed_mobile, refresh_google_token, export_google_report)
 
@@ -44,6 +45,11 @@ def main():
     reel.add_argument("--voice-rights-confirmed", action="store_true")
     replies = sub.add_parser("comments", help="Create moderated reply drafts from exported comments")
     replies.add_argument("--csv", default="data/comments_v12.csv")
+    voice = sub.add_parser("voice", help="Optional local Tamil/English WAV and SRT from approved script")
+    voice.add_argument("--script", required=True)
+    voice.add_argument("--lang", choices=("ta", "en"), default="ta")
+    voice.add_argument("--duration", type=int, default=12)
+    voice.add_argument("--rights-confirmed", action="store_true", required=True)
     sub.add_parser("weekly", help="Real-data weekly report")
     google = sub.add_parser("google", help="Read GA4, Search Console and optionally mobile PageSpeed")
     google.add_argument("--days", type=int, default=7)
@@ -89,6 +95,13 @@ def main():
         result = draft_replies(a.csv)
         print("Comment drafts:", len(result.get("drafts", [])),
               "status:", result["status"])
+    elif a.task == "voice":
+        script = Path(a.script).read_text(encoding="utf-8")
+        wav = synthesize(script, "output/v12/narration_" + a.lang + ".wav",
+                         lang=a.lang, rights_confirmed=a.rights_confirmed)
+        subtitles = srt_from_script(script, "output/v12/narration_" + a.lang + ".srt",
+                                    duration=a.duration)
+        print("Narration WAV:", wav, "Subtitles:", subtitles)
     elif a.task == "weekly":
         result = prepare_weekly()
         print("Weekly review: pageviews=", result["real_pageview_report"].get("status"),

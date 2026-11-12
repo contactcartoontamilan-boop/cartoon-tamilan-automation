@@ -4,10 +4,26 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from auto_story_cover import cover_from_html, image_candidate, load_draft, auto_cover, resolve_draft
+from auto_story_cover import cover_from_html, image_candidate, load_draft, auto_cover, resolve_draft, draft_from_story_url
 
 
 class AutoCoverTests(unittest.TestCase):
+    def test_explicit_story_url_rejects_untrusted_host(self):
+        with self.assertRaises(ValueError):
+            draft_from_story_url("https://another-site.example/novel")
+
+    def test_explicit_story_url_writes_draft(self):
+        import os
+        with tempfile.TemporaryDirectory() as temp:
+            original = os.getcwd()
+            try:
+                os.chdir(temp)
+                path = draft_from_story_url("https://cartoontamilan.in/novel-one", "சொந்த கதை")
+                data = load_draft(path)
+                self.assertEqual(data["item"]["title"], "சொந்த கதை")
+            finally:
+                os.chdir(original)
+
     def test_og_cover(self):
         html = '<meta property="og:image" content="/media/cover.jpg">'
         self.assertEqual(cover_from_html(html, "https://cartoontamilan.in/story"),

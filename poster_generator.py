@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
 FONT_CANDIDATES = [
+    "/system/fonts/NotoSansTamil-Regular.ttf",
+    "/system/fonts/NotoSansTamil-VF.ttf",
     "/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf",
     "/usr/share/fonts/opentype/noto/NotoSansTamil-Regular.ttf",
     "/data/data/com.termux/files/usr/share/fonts/TTF/NotoSansTamil-Regular.ttf",
@@ -83,7 +85,7 @@ def make_poster(draft_path, destination, font_path, artwork=None):
     draw.text((80, 810), "ORIGINAL STORY  |  புதிய கதை", font=small, fill="#f7cf7c")
 
     lines = fit_lines(draw, title, heading, 920)
-    if len(lines) > 5:
+    if len(lines) > 4:
         raise ValueError("Title too long for poster; shorten title or customize layout")
     y = 875
     for line in lines:

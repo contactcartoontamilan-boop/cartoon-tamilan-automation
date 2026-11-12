@@ -24,7 +24,7 @@ pip install -r requirements.txt
 python -m unittest test_studio_v5.py test_poster.py test_growth.py -v
 ```
 
-Create five-platform + bilingual content drafts for the latest existing story:
+Create Facebook/Instagram bilingual content drafts for the latest existing story:
 
 ```sh
 python social_content_v5.py --draft "$(ls -t output/*.json | head -1)" --out output/social_pack_v5.json

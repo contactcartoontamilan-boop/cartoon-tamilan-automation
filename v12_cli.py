@@ -1,6 +1,9 @@
 """CartoonTamilan V12 extra tools CLI. Nothing here publishes to social APIs."""
 import argparse
 import json
+import os
+from datetime import date, timedelta
+from dotenv import load_dotenv
 from pathlib import Path
 
 from auto_story_marketing import discover
@@ -14,6 +17,8 @@ from v12_story_reader import collect_chapters, save_chapters, draft_with_local_a
 from v12_media import create_variants, make_reel
 from v12_engagement import draft_replies
 from v12_weekly import prepare_weekly
+from v12_google import (ga4_daily_pageviews, export_ga4_csv, search_console_queries,
+                        pagespeed_mobile, refresh_google_token, export_google_report)
 
 
 def main():
@@ -40,6 +45,9 @@ def main():
     replies = sub.add_parser("comments", help="Create moderated reply drafts from exported comments")
     replies.add_argument("--csv", default="data/comments_v12.csv")
     sub.add_parser("weekly", help="Real-data weekly report")
+    google = sub.add_parser("google", help="Read GA4, Search Console and optionally mobile PageSpeed")
+    google.add_argument("--days", type=int, default=7)
+    google.add_argument("--pagespeed", action="store_true")
     a = p.parse_args()
 
     if a.task == "calendar":
@@ -85,6 +93,36 @@ def main():
         result = prepare_weekly()
         print("Weekly review: pageviews=", result["real_pageview_report"].get("status"),
               "social=", result["social_to_site_report"].get("status"))
+    elif a.task == "google":
+        load_dotenv()
+        if not 1 <= a.days <= 90:
+            p.error("--days must be 1–90")
+        property_id = os.getenv("GA4_PROPERTY_ID", "")
+        site_property = os.getenv("GSC_PROPERTY", "")
+        token = os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+        if not token:
+            token = refresh_google_token(
+                os.getenv("GOOGLE_CLIENT_ID", ""),
+                os.getenv("GOOGLE_CLIENT_SECRET", ""),
+                os.getenv("GOOGLE_REFRESH_TOKEN", ""))
+        finish = date.today() - timedelta(days=1)
+        start = finish - timedelta(days=a.days - 1)
+        ga4 = None
+        gsc = None
+        speed = None
+        if property_id:
+            ga4 = ga4_daily_pageviews(property_id, token, start.isoformat(), finish.isoformat())
+            if ga4:
+                export_ga4_csv(ga4)
+        if site_property:
+            gsc = search_console_queries(site_property, token, start.isoformat(), finish.isoformat())
+        if a.pagespeed:
+            speed = pagespeed_mobile("https://cartoontamilan.in/")
+        if ga4 is None and gsc is None and speed is None:
+            p.error("Configure GA4_PROPERTY_ID / GSC_PROPERTY or --pagespeed; no data obtained")
+        print("Verified Google API report:", export_google_report(ga4, gsc, speed))
+        print("GA4 dates:", len(ga4 or []), "GSC queries:", len(gsc or []))
+
 
 
 if __name__ == "__main__":

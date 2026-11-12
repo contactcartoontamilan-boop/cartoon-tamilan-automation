@@ -1,0 +1,15 @@
+site_name: "CartoonTamilan"
+site_url: "https://cartoontamilan.in"
+
+sources:
+  - name: "CartoonTamilan Originals"
+    url: "https://cartoontamilan.in/feed/"
+    kind: "story"
+
+  # Add verified official anime/animation news RSS feeds here later.
+  # - name: "Official Anime News Source"
+  #   url: "https://example.com/feed.xml"
+  #   kind: "news"
+
+max_items_per_source: 10
+request_timeout_seconds: 20

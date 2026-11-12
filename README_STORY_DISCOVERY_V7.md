@@ -54,3 +54,25 @@ python review_posters.py --download-dir ~/storage/downloads/CartoonTamilanPoster
 ```
 
 Do not enable publishing until each cover is licensed and Tamil text, story-to-cover match, layout and cropped images have been reviewed. The script does not automatically generate new anime characters or 3D models.
+
+## V8: Poster quality redesign (after reviewing 6-story contact sheet)
+
+Screenshot review found original anime covers and legible Tamil headlines, but excessive empty space, lower-cover printed text, and weak call-to-action hierarchy. The V8 poster compositor now:
+
+- uses a top-biased crop to emphasize characters' faces;
+- adds a dark lower-cover gradient to hide common embedded labels (not all image text can be hidden automatically);
+- places shorter story headlines in a balanced, adaptive 1–4-line text area;
+- uses a compact ORIGINAL STORY badge and stronger READ THE STORY button;
+- preserves 1080 × 1350 PNG output and does not enable live publishing.
+
+After git pull and tests, **regenerate** posters to apply the new layout; re-export alone will keep old layouts:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_poster.py test_story_marketing.py test_review_posters.py -v
+python auto_story_marketing.py --limit 10
+python review_posters.py --download-dir ~/storage/downloads/CartoonTamilanPosters
+```
+
+Open Downloads > CartoonTamilanPosters > contact_sheet.png again. Validate each character's face, any lettering embedded in the original cover, the Tamil title, and color/crop. Because source images can contain large built-in titles anywhere, human inspection remains necessary. These are branded cover posters, not AI-created anime artwork or 3D models.

@@ -47,3 +47,15 @@ Only copy the output if the poster command succeeded. Verify that the image is t
 - It uses the existing image as a poster component; **does not generate new anime artwork or 3D models**.
 - Publisher must remain disabled; `DRY_RUN=true` with `PUBLISH_FACEBOOK=false` and `PUBLISH_INSTAGRAM=false`.
 - Unit tests run offline; success in live Termux or Oracle depends on site HTML, network, fonts, and available media rights.
+
+## V6 updated quick commands
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_auto_story_cover.py test_assets.py test_poster.py test_studio_v5.py -v
+python auto_story_cover.py --draft latest --poster --headline 'புதிய தமிழ் கதை'
+python creative_studio_v5.py --draft latest --auto-cover --headline 'புதிய தமிழ் கதை' --outdir output/creative_v6
+```
+
+The script now picks the most recent **story** draft automatically. Do not copy the resulting image until the command reports successful completion. The srcset extractor now prefers its last entry, which is normally higher resolution.

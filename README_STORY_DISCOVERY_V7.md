@@ -30,3 +30,27 @@ Choose one exact returned path and run `cp <that-path> ~/storage/downloads/` (do
 - Site cover downloads are limited to same-site HTTPS media. External CDNs require an explicitly vetted allowlist. Rights are not proved by hosting a cover.
 - The script never publishes social posts; keep `DRY_RUN=true`, `PUBLISH_FACEBOOK=false`, `PUBLISH_INSTAGRAM=false`.
 - Unit tests are offline and do not prove the live site layout works.
+
+## V7.1: Clean headlines and Android review gallery
+
+The original six-story report showed titles polluted by status/author metadata (`Completed`, `CT Admin`, etc.). `auto_story_marketing.py` now removes status suffixes and uses per-story names for poster headlines. Re-run the generator to regenerate new posters with corrected names.
+
+You can **first view the six already generated posters without re-downloading**:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_story_marketing.py test_review_posters.py -v
+python review_posters.py --download-dir ~/storage/downloads/CartoonTamilanPosters
+```
+
+Open phone File Manager > Downloads > CartoonTamilanPosters > contact_sheet.png. The folder contains individually numbered poster PNGs and `story_index.txt` mapping each to its actual novel URL.
+
+After review, optionally rebuild with cleaned titles:
+
+```sh
+python auto_story_marketing.py --limit 10
+python review_posters.py --download-dir ~/storage/downloads/CartoonTamilanPosters
+```
+
+Do not enable publishing until each cover is licensed and Tamil text, story-to-cover match, layout and cropped images have been reviewed. The script does not automatically generate new anime characters or 3D models.

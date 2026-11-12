@@ -24,7 +24,7 @@ def clean_note(note, max_len=600):
     return text[:max_len]
 
 
-def concept_prompt(title, genre="fantasy", character_notes="", world_notes="", style="anime"):
+def concept_prompt(title, genre="unverified", character_notes="", world_notes="", style="anime", synopsis=""):
     if style not in ("anime", "cinematic_3d"):
         raise ValueError("style must be anime or cinematic_3d")
     genre = str(genre).lower().strip()
@@ -46,6 +46,8 @@ def concept_prompt(title, genre="fantasy", character_notes="", world_notes="", s
         facts.append("Verified story world notes: " + clean_note(world_notes))
     else:
         facts.append("Conceptual marketing atmosphere, not a depiction of a verified plot event")
+    if clean_note(synopsis):
+        facts.append("Own-site synopsis excerpt (UNREVIEWED, visual atmosphere only): " + clean_note(synopsis, 480))
     # Story titles in Tamil are not a reliable visual model instruction, but are
     # retained as context; typography is added after rendering using Pillow/RAQM.
     return (f"{look}. {layout}. {base}. Epic high-impact cover, jewel-toned purple "

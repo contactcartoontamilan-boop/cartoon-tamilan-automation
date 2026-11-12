@@ -24,8 +24,8 @@
 cd ~/cartoon-tamilan-automation
 git pull
 pip install -r requirements.txt
-python -m unittest test_campaign_v9.py test_poster.py test_story_marketing.py -v
-python campaign_v9.py --limit 2
+python -m unittest test_campaign_v9.py test_cinematic_v9.py test_poster.py test_story_marketing.py -v
+python campaign_v9.py --limit 2 --export-dir ~/storage/downloads/CartoonTamilanV9
 find output/campaign_v9 -name cinematic_poster.jpg -type f
 ```
 
@@ -138,3 +138,7 @@ This example time is **server-local**, not necessarily Indian Standard Time. Ver
 - AI Tamil copy-edit and English verified summaries, never fabricated scenes.
 - 9:16 video/voiceover Reel pipeline with licensed media and original music.
 - Real GA4/Search Console analytics to track website readers, not vanity Reel views.
+
+## Instagram profile link requirement
+
+Instagram feed captions do not turn ordinary URLs into clickable links. Before public publishing, verify that your Instagram profile link actually points to CartoonTamilan.in or your working reader landing page. V9 creates a UTM-tracked Instagram URL in the JSON output, but does not edit your Instagram bio for you.

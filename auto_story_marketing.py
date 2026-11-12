@@ -32,6 +32,22 @@ def clean(text):
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def clean_story_title(value):
+    """Remove catalogue status/author/category labels from a novel title."""
+    title = clean(value)
+    title = re.split(r"\\s+(?:Completed|Ongoing)\\b", title, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+    return re.sub(r"\\s*[·|\\-]\\s*$", "", title).strip()
+
+
+def poster_headline(title, limit=85):
+    """Keep the visible headline within a short, reviewable length."""
+    title = clean_story_title(title)
+    if len(title) <= limit:
+        return title
+    partial = title[:limit].rsplit(" ", 1)[0].strip()
+    return (partial or title[:limit]) + "…"
+
+
 def discover_from_html(html, base=BASE, limit=30):
     soup = BeautifulSoup(html, "html.parser")
     results = {}
@@ -68,7 +84,8 @@ def discover_from_html(html, base=BASE, limit=30):
         label = clean(link.get("title") or "")
         if label and 5 <= len(label) <= 150:
             title = label
-        if "view all" in title.lower() or "explore" in title.lower():
+        title = clean_story_title(title)
+        if not title or "view all" in title.lower() or "explore" in title.lower():
             continue
         results[url] = {"title": title, "link": url, "kind": "story", "evidence": "novel_card" if card else "catalogue_status"}
         if len(results) >= limit:
@@ -104,7 +121,7 @@ def build(outdir="output/story_discovery", limit=10, base=BASE, session=None, co
         try:
             cover = (cover_fetcher or auto_cover)(draft, target / "covers")
             poster = target / "poster.png"
-            (poster_maker or make_poster)(draft, poster, artwork=str(cover), headline="புதிய தமிழ் கதை")
+            (poster_maker or make_poster)(draft, poster, artwork=str(cover), headline=poster_headline(item["title"]))
             report["success"].append({"title": item["title"], "story_url": item["link"], "poster": str(poster)})
         except (ValueError, RuntimeError, OSError, requests.RequestException) as exc:
             report["failed"].append({"title": item["title"], "story_url": item["link"],

@@ -103,11 +103,11 @@ def make_reel(cover, outfile, seconds=12, voiceover=None, voice_rights_confirmed
         raise FileNotFoundError(cover)
     if not 4 <= seconds <= 30:
         raise ValueError("Reel duration must be between 4 and 30 seconds")
+    if voiceover and not voice_rights_confirmed:
+        raise PermissionError("Confirm rights to narration/audio before video render")
     ffmpeg = ffmpeg_path or shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("FFmpeg is not installed; install ffmpeg on Oracle to make MP4 videos")
-    if voiceover and not voice_rights_confirmed:
-        raise PermissionError("Confirm rights to narration/audio before video render")
     if voiceover and not Path(voiceover).is_file():
         raise FileNotFoundError(voiceover)
     output = Path(outfile)

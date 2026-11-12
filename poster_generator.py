@@ -19,6 +19,8 @@ TAMIL_FONTS = [
 ]
 LATIN_FONTS = [
     "/system/fonts/Roboto-Regular.ttf",
+    "/system/fonts/RobotoStatic-Regular.ttf",
+    "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 
@@ -74,6 +76,8 @@ def make_poster(draft_path, destination, font_path=None, artwork=None,
     title = (headline or item.get("title") or "").strip()
     if not title:
         raise ValueError("Headline is empty.")
+    if len(title) > 135:
+        raise ValueError("Headline too long; provide a concise, reviewed --headline.")
     if not artwork:
         raise ValueError("Original/licensed artwork required: --artwork PATH. No placeholder posters.")
     if mode not in ("story", "meme", "news"):

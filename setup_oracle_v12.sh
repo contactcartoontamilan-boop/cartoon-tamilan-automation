@@ -32,9 +32,39 @@ sudo tee "$OVERRIDE/30-v12-manager.conf" >/dev/null <<EOF
 ExecStart=
 ExecStart=/usr/bin/flock --shared --wait 600 $LOCK $PY $ROOT/v12_ops.py --limit 1 --seo
 EOF
+# Separate once-weekly report; no social posts or fake analytics.
+sudo tee /etc/systemd/system/cartoontamilan-weekly-v12.service >/dev/null <<EOF
+[Unit]
+Description=CartoonTamilan V12 real-data weekly growth review
+
+[Service]
+Type=oneshot
+User=$(id -un)
+Group=$(id -gn)
+WorkingDirectory=$ROOT
+ExecStart=/usr/bin/flock --shared --wait 300 $LOCK $PY $ROOT/v12_weekly.py
+TimeoutStartSec=5min
+NoNewPrivileges=true
+PrivateTmp=true
+EOF
+sudo tee /etc/systemd/system/cartoontamilan-weekly-v12.timer >/dev/null <<'EOF'
+[Unit]
+Description=Weekly CartoonTamilan growth review
+
+[Timer]
+OnCalendar=Mon *-*-* 09:00:00 Asia/Kolkata
+Persistent=true
+Unit=cartoontamilan-weekly-v12.service
+
+[Install]
+WantedBy=timers.target
+EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now cartoontamilan-preview-v10.timer
+sudo systemctl enable --now cartoontamilan-weekly-v12.timer
 echo "V12 daily preview installed at the existing 08:30 Asia/Kolkata time."
 echo "Oracle auto-sync V11 remains unchanged; live publishing remains OFF."
 echo "To test: sudo systemctl start cartoontamilan-preview-v10.service"
 echo "To see results: cat $ROOT/output/v12/latest_health.json"
+
+echo "V12 weekly growth review installed Mondays 09:00 IST (no data invented)."

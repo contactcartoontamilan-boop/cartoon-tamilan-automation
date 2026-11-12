@@ -50,7 +50,12 @@ def render_variants(image_path, output_dir):
     return art_file, style_file
 
 
-def produce(draft, artwork, outdir, headline=None, mode="story"):
+def produce(draft, artwork=None, outdir="output/creative_v5", headline=None, mode="story", auto_cover=False):
+    if auto_cover:
+        from auto_story_cover import auto_cover as fetch_cover
+        artwork = str(fetch_cover(draft, Path(outdir) / "covers"))
+    if not artwork:
+        raise ValueError("Supply --artwork PATH or --auto-cover. No placeholder image is used.")
     art_file, style_file = render_variants(artwork, outdir)
     poster_file = Path(outdir) / "story_poster.png"
     make_poster(draft, poster_file, artwork=str(art_file), headline=headline, mode=mode)

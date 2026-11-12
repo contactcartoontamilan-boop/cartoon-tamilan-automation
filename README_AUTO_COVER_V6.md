@@ -59,3 +59,29 @@ python creative_studio_v5.py --draft latest --auto-cover --headline 'புத�
 ```
 
 The script now picks the most recent **story** draft automatically. Do not copy the resulting image until the command reports successful completion. The srcset extractor now prefers its last entry, which is normally higher resolution.
+
+## V6.1 critical bug fix (November 2026)
+
+Termux reported `FAILED (errors=1)` because the test mocks the image downloader and the destination directory did not exist when `.rights.json` was written. `auto_story_cover.py` now creates that directory itself before downloading/writing metadata. Re-run tests; prior passing tests did not verify real website compatibility.
+
+**Important content classification correction:** Your RSS test selected a `Kodansha USA licenses new manga` article. That is anime news, **not an original CartoonTamilan novel**. Previously `config.yaml` incorrectly labeled every RSS entry as `kind: story`; this has been changed to `kind: news` to prevent misleading promotional copy. Old `output/*.json` files remain mislabeled unless regenerated, so do not rely on `--draft latest` for an original novel yet.
+
+For a real ORIGINAL story, copy its exact URL from the website and run:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_auto_story_cover.py -v
+python auto_story_cover.py --story-url "https://cartoontamilan.in/REPLACE-WITH-REAL-NOVEL-URL" --diagnose
+python auto_story_cover.py --story-url "https://cartoontamilan.in/REPLACE-WITH-REAL-NOVEL-URL" --poster --headline "புதிய தமிழ் கதை"
+```
+
+Replace the placeholder URL with an **actual original novel page**, not the news article or homepage. If `Matching same-site cover: (none)` remains, inspect the printed `IMG:` sources and send the output for CDN/JavaScript adaptation; the code intentionally will not fetch arbitrary third-party images.
+
+Only after `Poster saved:` is printed should you run:
+
+```sh
+cp output/covers/story_poster.png ~/storage/downloads/cartoon_story_poster.png
+```
+
+The commands `Cover candidate saved: ...` and `Poster saved: ...` are *messages printed by Python*, never commands to type at the `$` prompt.

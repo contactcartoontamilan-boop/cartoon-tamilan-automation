@@ -58,6 +58,20 @@ def cover_from_html(html, page_url, site_url=SITE):
     return None
 
 
+def resolve_draft(path):
+    if str(path) != "latest":
+        return str(path)
+    files = sorted(Path("output").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for file in files:
+        try:
+            obj = json.loads(file.read_text(encoding="utf-8"))
+            if obj.get("item", {}).get("kind") == "story":
+                return str(file)
+        except (ValueError, OSError, TypeError):
+            continue
+    raise FileNotFoundError("No original story draft in output/. Run python main.py or pass --draft PATH.")
+
+
 def load_draft(path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     item = data.get("item", {})
@@ -70,6 +84,7 @@ def load_draft(path):
 
 
 def auto_cover(draft_path, outdir="output/covers", session=None):
+    draft_path = resolve_draft(draft_path)
     data = load_draft(draft_path)
     item = data["item"]
     url = item["link"]
@@ -112,7 +127,7 @@ def auto_cover(draft_path, outdir="output/covers", session=None):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--draft", required=True)
+    p.add_argument("--draft", default="latest")
     p.add_argument("--outdir", default="output/covers")
     p.add_argument("--poster", action="store_true")
     p.add_argument("--headline", default="புதிய தமிழ் கதை")
@@ -126,7 +141,7 @@ def main():
     if args.poster:
         from poster_generator import make_poster
         poster = Path(args.outdir) / "story_poster.png"
-        make_poster(args.draft, poster, artwork=str(cover), headline=args.headline)
+        make_poster(resolve_draft(args.draft), poster, artwork=str(cover), headline=args.headline)
         print("Poster saved:", poster)
 
 

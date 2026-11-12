@@ -20,6 +20,7 @@ SITE = "https://cartoontamilan.in"
 HEADERS = {"User-Agent": "CartoonTamilanAutomation/0.6 (+story-cover-check)"}
 IMAGE_SELECTORS = (
     ".novel-cover img", ".story-cover img", ".book-cover img",
+    ".series-cover img", ".novel-card img", ".anime-card img",
     ".post-thumbnail img", ".featured-image img", ".entry-content img",
     "article img"
 )
@@ -37,7 +38,7 @@ def image_candidate(url, page_url, site_url=SITE):
 
 def cover_from_html(html, page_url, site_url=SITE):
     soup = BeautifulSoup(html, "html.parser")
-    for key, val in [("property", "og:image"), ("name", "twitter:image"), ("name", "og:image")]:
+    for key, val in [("property", "og:image:secure_url"), ("property", "og:image"), ("name", "twitter:image"), ("name", "og:image")]:
         meta = soup.find("meta", attrs={key: val})
         if meta:
             result = image_candidate(meta.get("content"), page_url, site_url)
@@ -45,13 +46,13 @@ def cover_from_html(html, page_url, site_url=SITE):
                 return result
     for selector in IMAGE_SELECTORS:
         for tag in soup.select(selector):
-            for value in (tag.get("data-src"), tag.get("data-lazy-src"), tag.get("src")):
+            for value in (tag.get("data-src"), tag.get("data-lazy-src"), tag.get("data-original"), tag.get("src")):
                 candidate = image_candidate(value, page_url, site_url)
                 if candidate:
                     return candidate
             srcset = tag.get("srcset", "")
             if srcset:
-                candidate = image_candidate(srcset.split(",")[0].strip().split()[0], page_url, site_url)
+                candidate = image_candidate(srcset.split(",")[-1].strip().split()[0], page_url, site_url)
                 if candidate:
                     return candidate
     return None
@@ -113,6 +114,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--draft", required=True)
     p.add_argument("--outdir", default="output/covers")
+    p.add_argument("--poster", action="store_true")
+    p.add_argument("--headline", default="புதிய தமிழ் கதை")
     args = p.parse_args()
     try:
         cover = auto_cover(args.draft, args.outdir)
@@ -120,6 +123,11 @@ def main():
         p.exit(2, "Cover not available: " + str(exc) + "\n")
     print("Cover candidate saved:", cover)
     print("Rights review required. No automatic posting.")
+    if args.poster:
+        from poster_generator import make_poster
+        poster = Path(args.outdir) / "story_poster.png"
+        make_poster(args.draft, poster, artwork=str(cover), headline=args.headline)
+        print("Poster saved:", poster)
 
 
 if __name__ == "__main__":

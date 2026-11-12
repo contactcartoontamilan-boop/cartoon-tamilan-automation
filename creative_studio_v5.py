@@ -72,11 +72,24 @@ def produce(draft, artwork, outdir, headline=None, mode="story"):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--draft", required=True)
-    p.add_argument("--artwork", required=True)
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--artwork", help="Owned/licensed local artwork path")
+    group.add_argument("--auto-cover", action="store_true", help="Download story-cover candidate from the chosen draft")
     p.add_argument("--outdir", default="output/creative_v5")
     p.add_argument("--headline", help="Short, reviewed Tamil or English poster headline")
     p.add_argument("--mode", choices=("story", "meme", "news"), default="story")
     a = p.parse_args()
-    result = produce(a.draft, a.artwork, a.outdir, a.headline, a.mode)
+    artwork = a.artwork
+    if a.auto_cover:
+        from auto_story_cover import auto_cover
+        try:
+            artwork = str(auto_cover(a.draft, str(Path(a.outdir) / "covers")))
+            print("Story cover downloaded for review:", artwork)
+        except Exception as exc:
+            p.exit(2, "Auto-cover unavailable: " + str(exc) + "\\n")
+    try:
+        result = produce(a.draft, artwork, a.outdir, a.headline, a.mode)
+    except (OSError, ValueError, RuntimeError) as exc:
+        p.exit(2, "Poster creation failed: " + str(exc) + "\\n")
     print(json.dumps(result, indent=2))
     print("No content published. These are artwork treatments, not AI-created illustrations or 3D models.")

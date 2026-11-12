@@ -125,13 +125,38 @@ def auto_cover(draft_path, outdir="output/covers", session=None):
     return destination
 
 
+def diagnose(draft_path):
+    data = load_draft(resolve_draft(draft_path))
+    url = data["item"]["link"]
+    response = requests.get(url, headers=HEADERS, timeout=25, allow_redirects=False)
+    print("Status:", response.status_code, "Page:", url)
+    print("Content-Type:", response.headers.get("Content-Type", "unknown"))
+    if response.status_code != 200:
+        print("Website response not 200. Verify link in browser.")
+        return
+    soup = BeautifulSoup(response.text, "html.parser")
+    print("HTML title:", soup.title.get_text(" ", strip=True)[:140] if soup.title else "(none)")
+    print("Matching same-site cover:", cover_from_html(response.text, url) or "(none)")
+    for tag in soup.select("meta[property='og:image'], meta[name='twitter:image']")[:5]:
+        print("Image metadata:", (tag.get("content") or "")[:180])
+    for tag in soup.select("img")[:5]:
+        print("IMG:", (tag.get("data-src") or tag.get("src") or "")[:180])
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--draft", default="latest")
     p.add_argument("--outdir", default="output/covers")
     p.add_argument("--poster", action="store_true")
+    p.add_argument("--diagnose", action="store_true", help="Print page image metadata; no download")
     p.add_argument("--headline", default="புதிய தமிழ் கதை")
     args = p.parse_args()
+    if args.diagnose:
+        try:
+            diagnose(args.draft)
+        except (ValueError, RuntimeError, requests.RequestException, OSError) as exc:
+            p.exit(2, "Diagnosis failed: " + str(exc) + "\n")
+        return
     try:
         cover = auto_cover(args.draft, args.outdir)
     except (ValueError, RuntimeError, requests.RequestException, OSError) as exc:

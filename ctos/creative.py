@@ -112,13 +112,12 @@ def _fit_title(draw, title, font_path, width, height, max_size):
     )
 
 
-def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x):
+def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
+            brand, cta):
     """Reserve footer and CTA FIRST, then fit title in the remaining panel."""
     usable_width = width - 2 * safe_x
     landscape = width > height
-    brand = "CartoonTamilan.in"
     footer = "ORIGINAL TAMIL STORIES  •  CARTOONTAMILAN.IN"
-    cta = "READ THE STORY | LINK IN BIO"
 
     brand_font = _measured_font(
         draw, brand, latin_font_path, usable_width,
@@ -202,7 +201,8 @@ def render_one(source, title, destination, kind="instagram_feed",
 
     # Title/CTA/footer coordinates are measured before drawing. This fixes
     # V13's live 2026-11-12 CTA and Tamil title collide error.
-    layout = _layout(d, title.strip(), tamil, english, w, h, safe_x)
+    layout = _layout(d, title.strip(), tamil, english, w, h, safe_x,
+                     brand, cta)
     header_height = max(64, round(h * .076))
     panel_y = layout["panel_y"]
     d.rectangle((0, 0, w, header_height), fill=style["ink"])

@@ -82,15 +82,16 @@ def create_campaign(item, day, art_provider="cover", outdir="output/campaign_v9"
     story = {"item": {**item, "id": key, "summary": item.get("summary", "")},
              "status": "review_required"}
     write_json(draft, story)
-    cover = (cover_fetcher or auto_cover)(draft, folder / "covers")
     if art_provider == "comfyui":
+        # A text-to-image workflow does not need the website cover. A missing
+        # cover must not prevent generation once a local model is configured.
         if artwork_generator is None:
             from comfyui_art_v9 import generate, story_prompt
             style = os.getenv("ART_STYLE", "anime")
             artwork_generator = lambda title, dest: generate(story_prompt(title, style), dest)
         artwork = artwork_generator(item["title"], folder / "ai_original_art.png")
     else:
-        artwork = cover
+        artwork = (cover_fetcher or auto_cover)(draft, folder / "covers")
     poster_path = folder / "cinematic_poster.jpg"
     (poster_maker or cinematic_poster)(draft, artwork, poster_path)
     record = approval or {}

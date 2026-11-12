@@ -2,9 +2,9 @@ site_name: "CartoonTamilan"
 site_url: "https://cartoontamilan.in"
 
 sources:
-  - name: "CartoonTamilan Originals"
+  - name: "CartoonTamilan Feed Updates"
     url: "https://cartoontamilan.in/feed/"
-    kind: "story"
+    kind: "news"
 
   # Add verified official anime/animation news RSS feeds here later.
   # - name: "Official Anime News Source"
@@ -13,3 +13,7 @@ sources:
 
 max_items_per_source: 10
 request_timeout_seconds: 20
+
+# NOTE: This feed contains anime licensing/news articles as well as other posts.
+# Do NOT label every RSS entry an original novel. For genuine original story
+# covers use auto_story_cover.py --story-url with the exact novel page URL.

@@ -31,6 +31,8 @@ def main(argv=None):
         cmd.add_argument("--voice", action="store_true", help="Optional basic local Tamil TTS with video")
         cmd.add_argument("--seconds", type=int, default=12)
         cmd.add_argument("--outdir", default="output/v13")
+        cmd.add_argument("--seo", action="store_true", help="Audit original story SEO pages")
+        cmd.add_argument("--chapters", action="store_true", help="Read publicly accessible original chapters")
 
     approval = sub.add_parser("approve", help="Explicitly approve an inspected exact local image/copy bundle")
     approval.add_argument("--manifest", required=True)
@@ -58,7 +60,7 @@ def main(argv=None):
         report = run(limit=args.limit, outdir=args.outdir,
                      art_mode=args.art_mode, art_style=args.style,
                      make_video=args.video, voice=args.voice,
-                     seconds=args.seconds)
+                     seconds=args.seconds, audit=args.seo, chapters=args.chapters)
         print(json.dumps(report, indent=2, ensure_ascii=False))
         if report["status"] == "failed":
             return 1

@@ -259,10 +259,23 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--publish", action="store_true", help="Publish only approved stories when env gates are enabled")
     parser.add_argument("--art-provider", choices=("cover", "comfyui"), default=None)
+    parser.add_argument("--export-dir", help="Copy generated JPGs to Android Downloads with unique filenames")
     args = parser.parse_args()
     if args.limit < 1 or args.limit > 6:
         parser.error("--limit must be 1–6")
     summary = run(limit=args.limit, publish=args.publish, art_provider=args.art_provider)
+    if args.export_dir:
+        folder = Path(args.export_dir).expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for prepared in summary["prepared"]:
+            source = Path(prepared["poster"])
+            if source.is_file():
+                name = source.parent.parent.name + "_" + source.parent.name + ".jpg"
+                destination = folder / name
+                shutil.copy2(source, destination)
+                saved.append(str(destination))
+        summary["exported_jpgs"] = saved
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if summary["failed"]:
         raise SystemExit(1)

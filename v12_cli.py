@@ -100,7 +100,7 @@ def main():
         property_id = os.getenv("GA4_PROPERTY_ID", "")
         site_property = os.getenv("GSC_PROPERTY", "")
         token = os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
-        if not token:
+        if (property_id or site_property) and not token:
             token = refresh_google_token(
                 os.getenv("GOOGLE_CLIENT_ID", ""),
                 os.getenv("GOOGLE_CLIENT_SECRET", ""),

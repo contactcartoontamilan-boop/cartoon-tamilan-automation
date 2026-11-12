@@ -120,3 +120,24 @@ Verify story synopsis, character appearances, and world details using actual sou
 **Live posting stays OFF by default.** Local image preview is not a successful Meta post. Until account permissions, public HTTPS image hosting, rights, and reviewed copy are configured, only use commands without `--publish`.
 
 Test the illustrated V10 poster first; the quality of newly generated **original** AI anime artwork requires ComfyUI, a real model checkpoint and adequate compute. A 12 GB CPU-only Oracle server should not be assumed to deliver unlimited free image generation.
+
+## V10.2 ComfyUI connection refused diagnosis (Termux)
+
+Termux successfully created and exported **two premium cover-based posters** with no errors, but `--art-mode comfyui` returned `Connection refused: 127.0.0.1:8188`. This means no ComfyUI server was listening on the Android phone. It does NOT mean that Python poster generation or Tamil titles failed.
+
+The `comfyui_art_v9.py` client now has a standalone connection check with actionable errors:
+
+```sh
+cd ~/cartoon-tamilan-automation
+git pull
+python -m unittest test_comfy_connection.py -v
+python comfyui_art_v9.py --check
+```
+
+If you get `COMFYUI_OFFLINE`, your phone is not running ComfyUI. Until ComfyUI and a working licensed checkpoint are installed, use the already-working cover-based workflow:
+
+```sh
+python campaign_v10.py --limit 2 --art-mode cover --export-dir ~/storage/downloads/CartoonTamilanV10
+```
+
+If you want image generation on **Oracle**, ComfyUI must be installed and started on Oracle and you must execute `campaign_v10.py` on Oracle itself (so its `127.0.0.1` points to the Oracle server), or establish a secure authenticated SSH localhost tunnel from Termux to Oracle. A 12 GB RAM Oracle instance with no suitable GPU may be too slow/limited for mainstream diffusion models. No software patch can silently launch an unavailable AI model. Do not expose ComfyUI port 8188 to the public Internet.

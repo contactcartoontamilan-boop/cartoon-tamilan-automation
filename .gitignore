@@ -36,3 +36,6 @@ data/*private*.csv
 
 # V13 Telegram delivery log prevents duplicate opt-in sends
 data/ct_v13_telegram_journal.json
+
+# V14 private licensed narration and character reference artwork
+private/

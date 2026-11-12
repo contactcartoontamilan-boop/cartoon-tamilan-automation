@@ -10,11 +10,12 @@ import os
 import shutil
 from pathlib import Path
 
-from campaign_v9 import create_campaign, run as run_v9, write_json
+from campaign_v9 import create_campaign, run as run_v9, write_json, read_json
 from premium_poster_v10 import make_premium_poster
 from art_direction_v10 import concept_prompt
 from story_context_v10 import read_synopsis
 from social_copy_v10 import premium_copy
+from story_bible_v10 import BIBLES, validate_bible
 
 ART_MODES = ("cover", "comfyui")
 THEMES = ("royal", "crimson", "cosmic", "emerald")
@@ -44,18 +45,28 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
     genre = ((record.get("genres") or ["unverified"])[0] or "unverified")
     theme = _theme_for(record)
     style = os.getenv("ART_STYLE", "anime")
-    synopsis = ""
-    if art_mode == "comfyui" and os.getenv("USE_SITE_SYNOPSIS", "true").lower() == "true":
+    bible = read_json(BIBLES, {}).get(item["link"], {})
+    canon_verified = validate_bible(bible)
+    synopsis = bible["synopsis"] if canon_verified else ""
+    character_notes = record.get("verified_character_notes", "")
+    world_notes = record.get("verified_world_notes", "")
+    if canon_verified:
+        character_notes = "; ".join(
+            entry["appearance"] for entry in bible.get("characters", [])[:4]) or character_notes
+        world_notes = bible.get("world_visuals", "") or world_notes
+    if art_mode == "comfyui" and not canon_verified and os.getenv("USE_SITE_SYNOPSIS", "true").lower() == "true":
         try:
             synopsis = (synopsis_fetcher or read_synopsis)(item["link"])
         except Exception:
-            # A site synopsis is optional, not grounds to invent story details.
+            # A website excerpt is not a verified chapter-by-chapter summary.
             synopsis = ""
     prompt = concept_prompt(
-        item["title"], genre=genre, synopsis=synopsis,
-        character_notes=record.get("verified_character_notes", ""),
-        world_notes=record.get("verified_world_notes", ""),
-        style=style)
+        item["title"], genre=genre,
+        synopsis="" if canon_verified else synopsis,
+        character_notes=character_notes,
+        world_notes=world_notes, style=style)
+    if canon_verified:
+        prompt += " Verified story synopsis (editor-approved): " + synopsis[:700]
 
     def generate_art(title, destination):
         if image_generator:
@@ -82,11 +93,11 @@ def build_premium_campaign(item, day, art_mode="cover", outdir="output/premium_v
     pack.update(copy)
     pack["art_prompt"] = prompt
     pack["site_synopsis_excerpt"] = synopsis
-    pack["synopsis_is_editorially_verified"] = False
+    pack["synopsis_is_editorially_verified"] = canon_verified
     pack["visual_theme"] = theme
     pack["actual_new_art_generated"] = art_mode == "comfyui"
     pack["art_generation_backend"] = "ComfyUI" if art_mode == "comfyui" else "website_cover"
-    pack["story_specific_notes_verified"] = bool(record.get("verified_character_notes")
+    pack["story_specific_notes_verified"] = bool(canon_verified or record.get("verified_character_notes")
                                                    or record.get("verified_world_notes"))
     pack["v10_visual_policy_approved"] = record.get("v10_visual_policy_approved") is True
     pack["status"] = ("approved_for_automated_publishing"

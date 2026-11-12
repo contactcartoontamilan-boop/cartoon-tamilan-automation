@@ -53,6 +53,37 @@ class V13Tests(unittest.TestCase):
                 self.assertEqual(output.size, SIZES[kind])
             self.assertLess(row["title_bbox_region"][3] + 9, row["cta_top"])
 
+    def test_live_tamil_title_no_collision_in_all_ten_formats(self):
+        """Regression: real 2026-11-12 story headline used to fail Oracle 3/5."""
+        source = self.root / "live_cover_source.jpg"
+        Image.new("RGB", (820, 1160), "#304b84").save(source)
+        pack = render_pack(
+            source, STORY["title"], self.root / "live_formats",
+            story_url=STORY["link"])
+        self.assertEqual(set(pack["assets"]), set(SIZES))
+        for kind, row in pack["assets"].items():
+            with self.subTest(kind=kind):
+                self.assertGreaterEqual(row["title_font_size"], 22)
+                self.assertLessEqual(
+                    row["title_bbox_region"][3] + 12,
+                    row["cta_top"],
+                    "Tamil title collides with CTA in " + kind,
+                )
+                self.assertGreater(row["footer_top"], row["cta_top"])
+                with Image.open(row["file"]) as output:
+                    self.assertEqual(output.size, SIZES[kind])
+                    self.assertEqual(output.format, "JPEG")
+
+    def test_long_tamil_title_measured_horizontal_panels(self):
+        title = "டிஜிட்டல் இதயங்கள்: விர்ச்சுவல் காதலும் விளையாட்டும்"
+        for kind in ("facebook_landscape", "youtube_thumbnail",
+                     "x_landscape", "linkedin_landscape"):
+            with self.subTest(kind=kind):
+                out = self.root / (kind + ".jpg")
+                from ctos.creative import render_one
+                row = render_one(self.clean, title, out, kind=kind)
+                self.assertLess(row["title_bbox_region"][3] + 12, row["cta_top"])
+
     def test_text_does_not_use_derivative_poster(self):
         poster = self.root / "instagram_feed.jpg"
         Image.new("RGB", (1080, 1350), "red").save(poster)

@@ -116,10 +116,13 @@ class PremiumV10Tests(unittest.TestCase):
                       "premium_theme":"cosmic"}
             pack = build_premium_campaign(STORY, date(2026,11,12), "comfyui",
                                           folder, approval=record,
-                                          image_generator=fake_ai, poster_maker=fake_poster)
+                                          image_generator=fake_ai, poster_maker=fake_poster,
+                                          synopsis_fetcher=lambda _: "A verified source preview of magical portals")
             self.assertTrue(pack["actual_new_art_generated"])
             self.assertEqual(pack["visual_theme"], "cosmic")
             self.assertIn("magic portals", calls[0])
+            self.assertIn("source preview of magical portals", calls[0])
+            self.assertFalse(pack["synopsis_is_editorially_verified"])
 
     def test_publishing_requires_visual_approval(self):
         with self.assertRaises(ValueError):

@@ -22,6 +22,31 @@ def base_url():
         raise ValueError("COMFYUI_URL must point to a local HTTP loopback service")
     return base
 
+def check_connection(session=None, timeout=5):
+    """Check actual local ComfyUI health before attempting AI generation."""
+    http = session or requests
+    endpoint = base_url() + "/system_stats"
+    try:
+        response = http.get(endpoint, timeout=timeout)
+        response.raise_for_status()
+        info = response.json()
+    except requests.ConnectionError as exc:
+        raise RuntimeError(
+            "COMFYUI_OFFLINE: No ComfyUI server listening on " + base_url()
+            + ". On Termux, 127.0.0.1 means your Android phone, NOT the Oracle server. "
+            "Start ComfyUI on the same machine or use an authorized SSH tunnel. "
+            "Until then use --art-mode cover."
+        ) from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            "COMFYUI_UNAVAILABLE: " + str(exc)[:220]
+            + ". Check local ComfyUI startup, network and port 8188."
+        ) from exc
+    if not isinstance(info, dict):
+        raise RuntimeError("Unexpected ComfyUI system_stats response")
+    return info
+
+
 def load_workflow(workflow_path, prompt, checkpoint=None, seed=None):
     workflow = copy.deepcopy(json.loads(Path(workflow_path).read_text(encoding="utf-8")))
     positive = os.getenv("COMFYUI_PROMPT_NODE", "6")
@@ -47,8 +72,17 @@ def generate(prompt, destination, workflow_path=None, timeout=600, session=None)
     workflow = load_workflow(workflow_path, prompt, checkpoint=checkpoint, seed=seed)
     http = session or requests
     root = base_url()
-    response = http.post(root + "/prompt", json={"prompt": workflow}, timeout=40)
-    response.raise_for_status()
+    try:
+        response = http.post(root + "/prompt", json={"prompt": workflow}, timeout=40)
+        response.raise_for_status()
+    except requests.ConnectionError as exc:
+        raise RuntimeError(
+            "COMFYUI_OFFLINE: Cannot reach " + root
+            + ". ComfyUI must be running on this machine or reachable through "
+            "a secure SSH tunnel. On Termux, 127.0.0.1 is the Android phone. "
+            "Run: python comfyui_art_v9.py --check. "
+            "Use --art-mode cover until the AI server is ready."
+        ) from exc
     payload = response.json()
     if not payload.get("prompt_id"):
         raise RuntimeError("ComfyUI rejected workflow: " + str(payload.get("error") or payload.get("node_errors") or "no prompt ID")[:250])
@@ -102,8 +136,23 @@ def story_prompt(title, style="anime"):
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument("--title", required=True)
+    p.add_argument("--title")
+    p.add_argument("--check", action="store_true", help="Check whether local ComfyUI is running")
     p.add_argument("--style", choices=["anime", "cinematic_3d"], default="anime")
     p.add_argument("--out", default="output/comfy_art.png")
     a = p.parse_args()
-    print("Generated:", generate(story_prompt(a.title, a.style), a.out))
+    if a.check:
+        try:
+            result = check_connection()
+            print("COMFYUI ONLINE: server reachable at", base_url())
+            devices = result.get("devices", []) if isinstance(result, dict) else []
+            print("Devices:", len(devices))
+        except (RuntimeError, ValueError) as exc:
+            p.exit(2, str(exc) + "\n")
+    else:
+        if not a.title:
+            p.error("--title is required unless --check is used")
+        try:
+            print("Generated:", generate(story_prompt(a.title, a.style), a.out))
+        except (RuntimeError, ValueError, TimeoutError) as exc:
+            p.exit(2, str(exc) + "\n")

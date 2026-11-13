@@ -77,6 +77,9 @@ class SocialQueueTests(unittest.TestCase):
             {item["platform"] for item in result["image_post_queue"]},
             {"instagram", "facebook", "pinterest", "threads", "x", "linkedin", "telegram"})
         self.assertEqual(result["thumbnail_exports"][0]["platform"], "youtube")
+        self.assertEqual(next(p for p in result["image_post_queue"]
+                              if p["platform"] == "x")["publisher"],
+                         "v14_opt_in_review_gated_adapter")
         self.assertTrue(all(item["status"] == "mp4_video_required"
                             for item in result["reel_short_requirements"]))
         self.assertTrue((self.root / "social_queue.json").is_file())

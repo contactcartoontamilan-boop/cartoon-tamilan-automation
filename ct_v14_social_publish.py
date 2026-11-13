@@ -332,7 +332,10 @@ def run(outdir="output/v14/image_posts", *, platform="all", story_url=None,
     finally:
         connection.close()
     return {"status": ("needs_reconciliation" if any(
-                r["status"] == "uncertain" for r in results) else "completed"),
+                r["status"] == "uncertain" or
+                (r["status"] == "already_attempted" and
+                 r.get("previous_status") in ("inflight", "uncertain"))
+                for r in results) else "completed"),
             "results": results, "scheduler_running": False,
             "note": "Published only when provider returned a post ID; verify in each account"}
 

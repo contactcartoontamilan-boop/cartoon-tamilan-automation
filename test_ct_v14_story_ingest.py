@@ -109,6 +109,25 @@ class FullStoryTests(unittest.TestCase):
         self.assertGreater(signals["html_bytes"], 0)
         self.assertNotIn(self.tamil[:30], json.dumps(signals, ensure_ascii=False))
 
+    def test_chapter_card_diagnostics_show_only_same_site_paths(self):
+        from ct_v14_story_ingest import landing_page_signals
+        html = ('<div class="ctdu-chapter-cards">'
+                '<a href="/novel/amrutha-ulaga-perangadi/chapter-1/?token=private">'
+                'அத்தியாயம் ஒன்று</a>'
+                '<a href="https://example.org/private">External</a>'
+                '<button data-chapter-id="42">Read</button>'
+                '</div>')
+        result = landing_page_signals(STORY, html)
+        card = result["chapter_card_signals"]
+        self.assertEqual(card["containers"], 1)
+        self.assertEqual(card["anchors"], 2)
+        self.assertEqual(card["buttons"], 1)
+        self.assertIn("data-chapter-id", card["data_attribute_names"])
+        self.assertEqual(card["same_site_link_paths"], [
+            "/novel/amrutha-ulaga-perangadi/chapter-1/"])
+        self.assertNotIn("token=private", json.dumps(result, ensure_ascii=False))
+        self.assertNotIn("example.org", json.dumps(card, ensure_ascii=False))
+
     def test_client_rendered_page_signals_without_exposing_script_text(self):
         html = ('<html><head><title>Story</title></head><body>'
                 '<main><section class="story-reader">' + self.tamil + '</section></main>'

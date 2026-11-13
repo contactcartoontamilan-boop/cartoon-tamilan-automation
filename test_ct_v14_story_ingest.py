@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from ct_v14_story_ingest import (
-    collect_full_story, discover_chapters, draft_source_excerpt, save_draft,
+    collect_full_story, discover_chapters, discover_latest_owned_story, draft_source_excerpt, save_draft,
 )
 from ctos.creative import CTA_BY_KIND, SIZES, _contained_art
 
@@ -80,6 +80,13 @@ class FullStoryTests(unittest.TestCase):
             json.loads((self.root / "preview" / "manifest.json").read_text(
                 encoding="utf-8"))["review_status"],
             "needs_human_story_and_rights_review")
+
+    def test_auto_discover_uses_existing_owned_story_source(self):
+        def fake(*, limit):
+            self.assertEqual(limit, 10)
+            return [{"link": "https://evil.test/novel/x/"},
+                    {"link": STORY, "title": "Original"}]
+        self.assertEqual(discover_latest_owned_story(fake), STORY)
 
     def test_cross_story_and_external_links_not_followed(self):
         html = ('<a href="https://evil.test/novel/chapter-3">Chapter 3</a>'

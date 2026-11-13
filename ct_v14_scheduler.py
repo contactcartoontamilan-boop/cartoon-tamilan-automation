@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Oracle cron worker for approved V14 Instagram/Facebook image drafts.
+"""Oracle cron worker for automatically scheduled V14 Instagram/Facebook drafts.
 
-When CT_V14_AUTO_SCHEDULE_APPROVED_QUEUE=true, discovers stories in the
-review queue, verifies the existing rights/copy/visual approvals, and adds
-Instagram + Facebook jobs on daily Asia/Kolkata slots. Publishing remains
-behind all publisher live-access gates.
+When CT_V14_AUTO_SCHEDULE_QUEUE=true, discovers unpublished stories in the
+queue and adds Instagram + Facebook jobs on daily Asia/Kolkata slots. The
+publisher runs automated content and media checks before publishing.
 """
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ from datetime import datetime, time as wall_time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from ct_v14_social_publish import CONFIRMATION, _require_approved, load_drafts, run
+from ct_v14_social_publish import CONFIRMATION, load_drafts, run
 from v12_story_reader import owned_story_url
 
 SCHEDULE = Path("data/v14_scheduled_posts.json")
@@ -48,8 +47,6 @@ def read_jobs(path: Path = SCHEDULE) -> list[dict]:
             raise ValueError("Only Instagram and Facebook are supported")
         if not owned_story_url(story_url):
             raise ValueError("Scheduled story must be an owned CartoonTamilan URL")
-        if job.get("approved_for_scheduling") is not True:
-            raise ValueError("Each job needs explicit scheduling approval")
         if job.get("published") is not False:
             raise ValueError("Schedule entries must begin unpublished")
         try:
@@ -69,9 +66,9 @@ def _next_daily_slot(after: datetime) -> datetime:
     return candidate
 
 
-def sync_approved_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
-    """Append only already-approved IG+FB queue stories to daily schedule."""
-    if os.getenv("CT_V14_AUTO_SCHEDULE_APPROVED_QUEUE", "").lower() != "true":
+def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
+    """Append eligible unpublished IG+FB queue stories to daily schedule."""
+    if os.getenv("CT_V14_AUTO_SCHEDULE_QUEUE", "").lower() != "true":
         return {"enabled": False, "added": 0}
     queue_path = Path(outdir) / "social_queue.json"
     if not queue_path.is_file():
@@ -112,10 +109,8 @@ def sync_approved_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
                 platform: load_drafts(outdir, platform=platform, story_url=story_url)[0]
                 for platform in ("instagram", "facebook")
             }
-            for item in items.values():
-                _require_approved(item)
         except (PermissionError, ValueError, FileNotFoundError):
-            # Reviews remain authoritative. Unapproved/invalid drafts are skipped.
+            # Invalid queue items are skipped; there is no manual approval gate.
             continue
 
         new_jobs = []
@@ -128,7 +123,6 @@ def sync_approved_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
                     "platform": platform,
                     "story_url": story_url,
                     "scheduled_at": slot.isoformat(),
-                    "approved_for_scheduling": True,
                     "published": False,
                     "source_draft_id": draft["id"],
                 })
@@ -160,7 +154,7 @@ def init_state(path: Path = STATE) -> sqlite3.Connection:
 
 def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 state_path: Path = STATE) -> dict:
-    sync = sync_approved_queue(outdir, schedule_path)
+    sync = sync_queue(outdir, schedule_path)
     if not schedule_path.exists():
         return {"checked_at": datetime.now(timezone.utc).isoformat(),
                 "auto_schedule": sync, "results": [],
@@ -207,7 +201,7 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Process approved V14 FB/IG jobs")
+    parser = argparse.ArgumentParser(description="Process automatically scheduled V14 FB/IG jobs")
     parser.add_argument("--outdir", default="output/v14/image_posts")
     parser.add_argument("--schedule", type=Path, default=SCHEDULE)
     parser.add_argument("--state", type=Path, default=STATE)

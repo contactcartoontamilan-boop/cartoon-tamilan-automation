@@ -202,19 +202,33 @@ def save_draft(collected: dict, draft: dict, outdir: str | Path) -> dict:
     return manifest
 
 
+def discover_latest_owned_story(discoverer=None) -> str:
+    """Reuse the existing V13 story discovery; never invent a URL."""
+    if discoverer is None:
+        from auto_story_marketing import discover as discoverer
+    candidates = discoverer(limit=10)
+    for item in candidates:
+        if isinstance(item, dict) and _safe_story_url(item.get("link", "")):
+            return item["link"]
+    raise ValueError("No owned CartoonTamilan novel discovered")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Read owned website chapters and create a review-only Tamil teaser")
-    parser.add_argument("--story-url", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--story-url")
+    source.add_argument("--discover-latest", action="store_true")
     parser.add_argument("--outdir", default="output/v14/full_story")
     parser.add_argument("--max-pages", type=int, default=24)
     parser.add_argument("--words", type=int, default=180)
     parser.add_argument("--scenes", type=int, default=8)
     args = parser.parse_args(argv)
-    collected = collect_full_story(args.story_url, max_pages=args.max_pages)
+    story_url = discover_latest_owned_story() if args.discover_latest else args.story_url
+    collected = collect_full_story(story_url, max_pages=args.max_pages)
     draft = draft_source_excerpt(collected, target_words=args.words,
                                  scene_count=args.scenes)
-    digest = hashlib.sha256(args.story_url.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(story_url.encode("utf-8")).hexdigest()[:16]
     target = Path(args.outdir) / digest
     manifest = save_draft(collected, draft, target)
     print(json.dumps({"status": manifest["review_status"],

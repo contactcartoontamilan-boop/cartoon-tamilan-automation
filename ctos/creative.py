@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from poster_generator import (
     require_tamil_shaping, find_font, latin_font, font_at, lines_for,
@@ -34,6 +34,19 @@ PALETTES = (
     {"ink": "#1B0E26", "accent": "#FFD9A3", "cta": "#B248DE"},
     {"ink": "#162238", "accent": "#B4DDFF", "cta": "#F14A72"},
 )
+CTA_BY_KIND = {
+    "instagram_feed": "READ THE STORY | LINK IN BIO",
+    "instagram_story": "READ THE STORY | LINK IN BIO",
+    "facebook_feed": "READ STORY | LINK IN POST",
+    "facebook_landscape": "READ STORY | LINK IN POST",
+    "youtube_thumbnail": "STORY VIDEO | CARTOONTAMILAN.IN",
+    "youtube_short": "STORY VIDEO | CARTOONTAMILAN.IN",
+    "pinterest_pin": "READ STORY | CARTOONTAMILAN.IN",
+    "x_landscape": "READ STORY | LINK IN POST",
+    "threads_feed": "READ STORY | LINK IN POST",
+    "linkedin_landscape": "READ STORY | LINK IN POST",
+}
+
 DECORATED = {
     "premium_poster.jpg", "cinematic_poster.jpg", "story_poster.png",
     "instagram_feed.jpg", "square.jpg", "reel_cover.jpg",
@@ -70,6 +83,32 @@ def _crop(source, size, focus=(0.50, 0.42)):
     x = max(0, min(large.width - width, cx - width // 2))
     y = max(0, min(large.height - height, cy - height // 2))
     return large.crop((x, y, x + width, y + height))
+
+
+def _contained_art(source, size, header_height, panel_y, ink):
+    """Preserve the entire licensed artwork in the visible art viewport.
+
+    Blurred cover-fill is background ONLY; the sharp foreground is contain-fit.
+    This avoids cutting off people at the edges of wide source covers.
+    """
+    width, height = size
+    art_height = panel_y - header_height
+    if art_height < 20:
+        raise ValueError("No usable artwork viewport")
+    with Image.open(source) as opened:
+        original = opened.convert("RGB")
+    background = _crop(source, (width, art_height)).filter(
+        ImageFilter.GaussianBlur(radius=max(8, round(width * 0.018))))
+    canvas = Image.new("RGB", (width, height), ink)
+    canvas.paste(background, (0, header_height))
+    scale = min(width / original.width, art_height / original.height)
+    target_w = max(1, min(width, round(original.width * scale)))
+    target_h = max(1, min(art_height, round(original.height * scale)))
+    sharp = original.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    x = (width - target_w) // 2
+    y = header_height + (art_height - target_h) // 2
+    canvas.paste(sharp, (x, y))
+    return canvas.convert("RGBA"), [x, y, x + target_w, y + target_h]
 
 
 def _bbox(draw, text, font):
@@ -167,6 +206,14 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
         raise ValueError("No safe title/CTA layout; editorial title shortening required")
     _, panel_y, title_top, title_font, rows, stride, actual_height = best
     title_bottom = title_top + actual_height
+    # Balance the empty space in tall Stories instead of leaving a huge
+    # blank gulf between the Tamil title and the call to action.
+    free_gap = cta_top - title_bottom
+    preferred_gap = max(40, round(height * .05))
+    if free_gap > preferred_gap:
+        shift = (free_gap - preferred_gap) // 2
+        title_top += shift
+        title_bottom += shift
     if title_bottom + max(16, round(height * .025)) > cta_top:
         raise RuntimeError("Internal title/CTA layout error")
     if cta_top + cta_h + max(16, round(height * .024)) > footer_top:
@@ -185,7 +232,7 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
 
 def render_one(source, title, destination, kind="instagram_feed",
                focus=(0.5, 0.42), brand="CartoonTamilan.in",
-               cta="READ THE STORY | LINK IN BIO", palette_index=0):
+               cta=None, palette_index=0):
     if kind not in SIZES:
         raise ValueError("Unknown platform format")
     if not isinstance(title, str) or not title.strip() or len(title) > 150:
@@ -194,7 +241,9 @@ def render_one(source, title, destination, kind="instagram_feed",
     source = clean_source(source)
     w, h = SIZES[kind]
     style = PALETTES[palette_index % len(PALETTES)]
-    canvas = _crop(source, (w, h), focus).convert("RGBA")
+    cta = cta or CTA_BY_KIND[kind]
+    # Measure layout first; only the uncovered artwork viewport needs an image.
+    canvas = Image.new("RGBA", (w, h), style["ink"])
     d = ImageDraw.Draw(canvas)
     safe_x = round(w * 0.052)
     tamil, english = find_font(), latin_font()
@@ -205,6 +254,9 @@ def render_one(source, title, destination, kind="instagram_feed",
                      brand, cta)
     header_height = max(64, round(h * .076))
     panel_y = layout["panel_y"]
+    canvas, art_bbox = _contained_art(source, (w, h), header_height, panel_y,
+                                      style["ink"])
+    d = ImageDraw.Draw(canvas)
     d.rectangle((0, 0, w, header_height), fill=style["ink"])
     d.rectangle((0, panel_y, w, h), fill=style["ink"])
     d.rectangle((safe_x, panel_y + 11, safe_x + round(w * .18), panel_y + 17),
@@ -253,6 +305,9 @@ def render_one(source, title, destination, kind="instagram_feed",
         "cta_top": layout["cta_top"],
         "footer_top": layout["footer_top"],
         "art_source": str(source),
+        "artwork_contained_without_face_crop": True,
+        "visible_artwork_bbox": art_bbox,
+        "cta": cta,
         "source_text_free_not_automatically_verified": True,
     }
 

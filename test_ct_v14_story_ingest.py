@@ -12,6 +12,7 @@ from ct_v14_story_ingest import (
     collect_full_story, discover_chapters, discover_latest_owned_story, draft_source_excerpt, save_draft,
 )
 from ctos.creative import CTA_BY_KIND, SIZES, _contained_art
+from ctos.platforms import PLATFORM_IMAGE
 
 
 STORY = "https://cartoontamilan.in/novel/amrutha-ulaga-perangadi/"
@@ -118,6 +119,7 @@ class VisualSafetyTests(unittest.TestCase):
         self.assertIn("LINK IN BIO", CTA_BY_KIND["instagram_feed"])
         self.assertIn("LINK IN POST", CTA_BY_KIND["facebook_feed"])
         self.assertNotIn("LINK IN BIO", CTA_BY_KIND["pinterest_pin"])
+        self.assertEqual(PLATFORM_IMAGE["telegram"], "facebook_feed")
 
     def test_contain_preserves_both_edges_of_wide_cover(self):
         with tempfile.TemporaryDirectory() as temp:

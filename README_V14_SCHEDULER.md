@@ -1,38 +1,48 @@
-# V14 Instagram and Facebook scheduler
+# V14 Instagram and Facebook auto-publisher
 
-This adds an Oracle cron worker for one-time, explicitly scheduled Instagram
-or Facebook image drafts. It checks due jobs and calls the existing V14
-publisher. It does not create or infer approvals, credentials, image hosting,
-or permission to publish. All existing V9/V10/V13 review and rights checks,
-public HTTPS media checks, per-platform environment opt-ins, and duplicate
-journal checks remain active.
+The Oracle worker can automatically schedule reviewed V14 image drafts for
+Instagram and Facebook. It reuses each queue draft's existing image and exact
+caption text (including any title/hashtags already present in that caption).
+For each eligible story it schedules both channels on the same daily slot,
+starting at 09:00 Asia/Kolkata. Later stories use the next day.
 
-## Configure on Oracle
+A draft is eligible only after the existing story-rights, copy and V10 visual
+approval checks pass. The worker never invents or grants approval. It skips
+unapproved/invalid drafts. Reels and Stories are not included: they need video
+assets and a separate publishing flow.
 
-1. Keep this checkout isolated from V13 production and install the V14
+## Oracle setup
+
+1. Deploy this branch into the isolated V14 checkout and install the V14
    requirements in its virtual environment.
-2. Create `data/v14_scheduled_posts.json` from
-   `data/v14_scheduled_posts.example.json`.
-3. Add only a story whose V14 image draft is present in the queue. Set a
-   unique `id`, choose `instagram` or `facebook`, give the exact owned
-   CartoonTamilan story URL and a timezone-aware `scheduled_at` (India example:
-   `2026-11-14T09:00:00+05:30`). Set
-   `approved_for_scheduling: true` only after reviewing that image and caption
-   and completing the existing rights/copy/visual approval steps. Leave
-   `published: false`.
-4. Configure the existing V14 live gates and local secrets as documented in
-   `README_V14_SOCIAL_PUBLISH.md`. Instagram/Facebook require a public HTTPS
-   image host reachable by Meta.
-5. Run one safe check:
-   `./.venv/bin/python ct_v14_scheduler.py --poll-seconds 0`. A not-due job
-   should produce an empty result list.
-6. Install a once-per-minute Oracle crontab entry after setup:
-
+2. Prepare or refresh the queue from the generated image-post preview:
+   `./.venv/bin/python ct_v14_social_queue.py prepare --outdir output/v14/image_posts`
+3. Configure the V14 live-publish variables and private secrets as described
+   in `README_V14_SOCIAL_PUBLISH.md`. Facebook and Instagram also need a
+   public HTTPS media host that Meta can fetch. Never commit access tokens to
+   GitHub.
+4. Set these variables in the Oracle service environment only after reviewing
+   the intended live-publishing behavior:
+   - `CT_V14_AUTO_SCHEDULE_APPROVED_QUEUE=true` to discover approved queue
+     items and create the daily jobs.
+   - `CT_V14_LIVE_PUBLISH=YES_I_APPROVE_V14`
+   - `DRY_RUN=false`
+   - `CT_V14_ENABLE_INSTAGRAM=true`
+   - `CT_V14_ENABLE_FACEBOOK=true`
+   The publisher also requires its explicit confirmation constant internally,
+   checks approvals again immediately before publishing, and validates the
+   image, account configuration, HTTPS host, and duplicate journal.
+5. First run once and inspect the output:
+   `./.venv/bin/python ct_v14_scheduler.py --poll-seconds 0`
+   It reports how many approved jobs it added. Future jobs are scheduled for
+   09:00 India time, one story per day, on both channels.
+6. Run the worker every minute from Oracle cron:
    ```cron
    * * * * * cd /home/ubuntu/cartoon-tamilan-v14-social-test && .venv/bin/python ct_v14_scheduler.py --poll-seconds 0 >> logs/v14_scheduler.log 2>&1
    ```
 
-The script marks a confirmed post in a local SQLite state file. An uncertain
-result is recorded and is never automatically retried. A blocked preflight
-remains eligible for another check after the configuration or approval issue
-is fixed. Neither GitHub Actions nor this PR turns live posting on by itself.
+The worker only publishes due jobs while all live gates are enabled. Posts
+with uncertain API outcomes are recorded for manual reconciliation and are
+never retried automatically, to avoid duplicate posts. Keep the schedule,
+SQLite state, publish journal, queue, media files and credentials on the
+Oracle server. GitHub Actions does not publish posts.

@@ -1,7 +1,7 @@
 # CartoonTamilan V14 — automatic image-post PREVIEW (no publishing)
 
 This is the first isolated V14 automation step. It **reuses the existing V13
-website story discovery, licensed/approved cover fetch, Tamil typography and
+website story discovery, same-site cover fetch, Tamil typography and
 10-platform image-layout pipeline** rather than copying or modifying V13 code.
 
 ## What the new command does

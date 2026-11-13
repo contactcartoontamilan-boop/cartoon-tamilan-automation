@@ -8,6 +8,9 @@ on:
       - 'ct_v14_social_publish.py'
       - 'test_ct_v14_social_publish.py'
       - 'ct_v14_social_queue.py'
+      - 'test_ct_v14_social_queue.py'
+      - 'ct_v14_control_center.py'
+      - 'test_ct_v14_control_center.py'
       - 'README_V14_SOCIAL_PUBLISH.md'
       - '.github/workflows/v14-social-publish-tests.yml'
   workflow_dispatch:
@@ -36,4 +39,4 @@ jobs:
         run: python -m compileall -q ct_v14_social_publish.py test_ct_v14_social_publish.py
       - name: Offline mocked API and regression tests
         run: |
-          python -m unittest test_ct_v14_social_publish.py test_ct_v14_social_queue.py test_ct_v14_image_post.py -v
+          python -m unittest test_ct_v14_social_publish.py test_ct_v14_social_queue.py test_ct_v14_image_post.py test_ct_v14_control_center.py -v

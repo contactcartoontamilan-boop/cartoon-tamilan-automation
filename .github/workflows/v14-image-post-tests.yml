@@ -1,0 +1,47 @@
+name: V14 image-post preview offline validation
+
+on:
+  push:
+    branches:
+      - feature/v14-auto-image-post-preview
+    paths:
+      - 'ct_v14_image_post.py'
+      - 'test_ct_v14_image_post.py'
+      - 'ct_v14_social_queue.py'
+      - 'test_ct_v14_social_queue.py'
+      - 'README_V14_IMAGE_POST_AUTOMATION.md'
+      - '.github/workflows/v14-image-post-tests.yml'
+  pull_request:
+    branches:
+      - feature/v14-story-video-voice-qa
+    paths:
+      - 'ct_v14_image_post.py'
+      - 'test_ct_v14_image_post.py'
+      - 'ct_v14_social_queue.py'
+      - 'test_ct_v14_social_queue.py'
+      - 'README_V14_IMAGE_POST_AUTOMATION.md'
+      - '.github/workflows/v14-image-post-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Tamil font and image dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-core libraqm0 ffmpeg
+      - name: Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Syntax check
+        run: python -m compileall -q ct_v14_image_post.py test_ct_v14_image_post.py ct_v14_social_queue.py test_ct_v14_social_queue.py
+      - name: Offline image post and V14 regression tests
+        run: python -m unittest test_ct_v14_image_post.py test_ct_v14_social_queue.py test_ct_v14.py -v

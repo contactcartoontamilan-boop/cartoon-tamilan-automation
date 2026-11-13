@@ -126,6 +126,39 @@ def landing_page_signals(story_url: str, html: str) -> dict:
             "text_characters": chars,
         })
     candidates.sort(key=lambda item: item["text_characters"], reverse=True)
+    # Target the chapter-card region specifically. Record only same-site paths,
+    # element counts, and attribute *names*; never print story prose or tokens.
+    card_nodes = soup.select(".ctdu-chapter-cards, [class*='chapter-cards']")
+    card_paths: list[str] = []
+    card_data_keys: set[str] = set()
+    card_anchor_count = 0
+    card_button_count = 0
+    card_onclick_count = 0
+    for card in card_nodes[:10]:
+        card_anchor_count += len(card.select("a[href]"))
+        card_button_count += len(card.select("button"))
+        for element in card.select("*"):
+            card_data_keys.update(
+                str(key)[:50] for key in element.attrs if str(key).startswith("data-"))
+            if element.has_attr("onclick"):
+                card_onclick_count += 1
+        for link in card.select("a[href]")[:30]:
+            raw = link.get("href", "")
+            if not isinstance(raw, str):
+                continue
+            target = urlsplit(urldefrag(urljoin(story_url, raw))[0])
+            if target.scheme == "https" and target.hostname in (
+                    "cartoontamilan.in", "www.cartoontamilan.in"):
+                if target.path not in card_paths and len(card_paths) < 15:
+                    card_paths.append(target.path)
+    card_signals = {
+        "containers": len(card_nodes),
+        "anchors": card_anchor_count,
+        "buttons": card_button_count,
+        "onclick_elements": card_onclick_count,
+        "same_site_link_paths": card_paths,
+        "data_attribute_names": sorted(card_data_keys)[:15],
+    }
     scripts = soup.select("script")
     script_content = "\n".join(node.get_text() for node in scripts)
     body = soup.body
@@ -138,6 +171,7 @@ def landing_page_signals(story_url: str, html: str) -> dict:
         "body_visible_characters": len(body.get_text(" ", strip=True)) if body else 0,
         "selector_characters": selector_chars,
         "candidate_containers": candidates[:10],
+        "chapter_card_signals": card_signals,
         "script_tag_count": len(scripts),
         "framework_signals": {
             "next_data": bool(soup.select_one("script#__NEXT_DATA__")),

@@ -62,8 +62,8 @@ def readiness_report(queue: dict | None, story: dict | None = None,
         "story_chapters_extracted": (story or {}).get("chapters_extracted", 0),
         "story_completeness": (story or {}).get("story_completeness", "not_verified"),
         "scene_images_generated": len((scene_art or {}).get("scene_images", [])),
-        "video_file_verified": bool(video and video.get("video_qa") and
-                                    video.get("published") is False),
+        "video_manifest_loaded": video is not None,
+        "video_file_verified": False,  # No media file is inspected by this report.
         "platforms": status,
         "image_post_drafts": sum(counts.values()),
         "video_workflows_waiting_for_mp4": (

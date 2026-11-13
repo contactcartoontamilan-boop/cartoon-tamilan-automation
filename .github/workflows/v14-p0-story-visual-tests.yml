@@ -29,7 +29,7 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Compile modified modules
         run: |
-          python -m compileall -q ct_v14_story_ingest.py ct_v14_scene_art.py ctos/creative.py comfyui_art_v9.py test_ct_v14_story_ingest.py test_ct_v14_scene_art.py
+          python -m compileall -q ct_v14_story_ingest.py ct_v14_scene_art.py ct_v14_control_center.py ctos/creative.py comfyui_art_v9.py test_ct_v14_story_ingest.py test_ct_v14_scene_art.py test_ct_v14_control_center.py
       - name: Offline V14 and existing image regression suite
         run: |
-          python -m unittest test_ct_v14_story_ingest.py test_ct_v14_scene_art.py test_ct_v14_image_post.py test_ct_v14_social_queue.py test_ct_v14.py test_ct_v13.py -v
+          python -m unittest test_ct_v14_story_ingest.py test_ct_v14_scene_art.py test_ct_v14_control_center.py test_ct_v14_image_post.py test_ct_v14_social_queue.py test_ct_v14.py test_ct_v13.py -v

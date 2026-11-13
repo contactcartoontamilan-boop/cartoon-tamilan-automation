@@ -99,6 +99,56 @@ class FullStoryTests(unittest.TestCase):
                 '<a href="chapter-1/">அத்தியாயம் 1</a>')
         self.assertEqual(discover_chapters(STORY, html), [C1])
 
+    def test_ctdu_cards_discover_root_chapter_paths_without_cross_story_leaks(self):
+        from urllib.parse import quote
+        roman = "https://cartoontamilan.in/chapter/amrutha-ulaga-perangadi-episode-1/"
+        tamil = "https://cartoontamilan.in/chapter/" + quote("அம்ருதா-4") + "/"
+        other = "https://cartoontamilan.in/chapter/other-story-episode-3/"
+        html = ('<div class="ctdu-chapter-cards">'
+                '<a href="' + tamil + '">பாகம் 4</a>'
+                '<a href="' + roman + '">Episode 1</a>'
+                '<a href="' + other + '">Other story</a>'
+                '<a href="https://evil.test/chapter/amrutha-ulaga-perangadi-episode-9/">X</a>'
+                '<a href="' + roman + '?token=private">Do not follow query</a>'
+                '</div><a href="/chapter/அம்ருதா-7/">Untrusted outside cards</a>')
+        self.assertEqual(discover_chapters(STORY, html), [tamil, roman])
+
+    def test_root_chapter_cards_collect_and_draft_without_publishing(self):
+        from urllib.parse import quote
+        tamil = "https://cartoontamilan.in/chapter/" + quote("அம்ருதா-4") + "/"
+        roman = "https://cartoontamilan.in/chapter/amrutha-ulaga-perangadi-episode-1/"
+        pages = {
+            STORY: ('<div class="ctdu-chapter-cards">'
+                    '<a href="' + tamil + '">4</a>'
+                    '<a href="' + roman + '">Episode 1</a></div>'),
+            tamil: '<div class="chapter-content">' + self.tamil + '</div>',
+            roman: '<div class="chapter-content">' + self.tamil + '</div>',
+        }
+        session = FakeSession(pages)
+        collected = collect_full_story(STORY, session=session, max_pages=4)
+        self.assertEqual(collected["chapters_extracted"], 2)
+        self.assertEqual(collected["chapter_links_discovered"], 2)
+        self.assertEqual(session.requested, [STORY, tamil, roman])
+        draft = draft_source_excerpt(collected, target_words=180, scene_count=8)
+        self.assertEqual(draft["provenance"][0]["url"], tamil)
+        self.assertFalse(draft["approved_for_video"])
+        self.assertFalse(collected["published"])
+
+    def test_unreadable_chapter_reports_structural_diagnostics_only(self):
+        roman = "https://cartoontamilan.in/chapter/amrutha-ulaga-perangadi-episode-1/"
+        pages = {
+            STORY: '<div class="ctdu-chapter-cards"><a href="' + roman + '">1</a></div>',
+            roman: '<html><body><div class="ctdu-reader-body">' + self.tamil
+                   + '</div></body></html>',
+        }
+        collected = collect_full_story(STORY, session=FakeSession(pages))
+        self.assertEqual(collected["chapters_extracted"], 0)
+        self.assertEqual(len(collected["chapter_page_diagnostics"]), 1)
+        self.assertGreater(
+            collected["chapter_page_diagnostics"][0]["body_visible_characters"], 120)
+        self.assertNotIn(self.tamil[:30], json.dumps(
+            diagnostic_summary(collected), ensure_ascii=False))
+
     def test_landing_diagnostics_report_structure_not_story_prose(self):
         session = FakeSession(self.pages)
         collected = collect_full_story(STORY, session=session)

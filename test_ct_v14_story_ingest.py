@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
+from contextlib import redirect_stdout
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 
 from PIL import Image
 
 from ct_v14_story_ingest import (
-    collect_full_story, discover_chapters, discover_latest_owned_story, draft_source_excerpt, save_draft,
+    collect_full_story, discover_chapters, discover_latest_owned_story,
+    diagnostic_summary, draft_source_excerpt, main, save_draft,
 )
 from ctos.creative import CTA_BY_KIND, SIZES, _contained_art
 from ctos.platforms import PLATFORM_IMAGE
@@ -94,6 +98,48 @@ class FullStoryTests(unittest.TestCase):
                 '<a href="' + OTHER + '">Chapter 9</a>'
                 '<a href="chapter-1/">அத்தியாயம் 1</a>')
         self.assertEqual(discover_chapters(STORY, html), [C1])
+
+    def test_slug_suffixed_chapter_link_without_crossing_story_boundary(self):
+        sibling = STORY.rstrip("/") + "-chapter-3/"
+        other = STORY.rstrip("/") + "-other-chapter-3/"
+        html = ('<a href="' + sibling + '">Chapter 3</a>'
+                '<a href="' + other + '">Chapter 4</a>')
+        self.assertEqual(discover_chapters(STORY, html), [sibling])
+
+    def test_inspect_reports_short_text_without_traceback(self):
+        fake_collected = {
+            "story_url": STORY, "chapters": [], "chapters_extracted": 0,
+            "pages_examined": 0, "chapter_links_discovered": 0,
+            "landing_readable_words": 0, "extracted_words": 0,
+            "failures": [], "completeness": "unverified",
+            "published": False,
+        }
+        out = io.StringIO()
+        with patch("ct_v14_story_ingest.collect_full_story", return_value=fake_collected):
+            with redirect_stdout(out):
+                code = main(["--story-url", STORY, "--inspect"])
+        self.assertEqual(code, 0)
+        result = json.loads(out.getvalue())
+        self.assertEqual(result["status"], "diagnostic_only")
+        self.assertEqual(result["chapters_extracted"], 0)
+        self.assertFalse(result["published"])
+
+    def test_failed_draft_prints_actionable_diagnostics(self):
+        fake_collected = {
+            "story_url": STORY, "chapters": [], "chapters_extracted": 0,
+            "pages_examined": 0, "chapter_links_discovered": 0,
+            "landing_readable_words": 0, "extracted_words": 0,
+            "failures": [], "completeness": "unverified",
+            "published": False,
+        }
+        out = io.StringIO()
+        with patch("ct_v14_story_ingest.collect_full_story", return_value=fake_collected):
+            with redirect_stdout(out):
+                code = main(["--story-url", STORY, "--words", "180"])
+        self.assertEqual(code, 2)
+        result = json.loads(out.getvalue())
+        self.assertEqual(result["status"], "insufficient_or_invalid_chapter_text")
+        self.assertEqual(result["diagnostics"]["extracted_words"], 0)
 
     def test_max_pages_honest_truncation(self):
         result = collect_full_story(STORY, session=FakeSession(self.pages), max_pages=1)

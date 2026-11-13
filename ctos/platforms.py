@@ -26,7 +26,7 @@ PLATFORM_IMAGE = {
     "threads": "threads_feed",
     "x": "x_landscape",
     "linkedin": "linkedin_landscape",
-    "telegram": "instagram_feed",
+    "telegram": "facebook_feed",
 }
 REAL_PUBLISH_APIS = ("facebook", "instagram", "telegram")
 
@@ -93,7 +93,7 @@ def publish_telegram(manifest_path, live=False, session=None):
     chat_id = os.getenv("CT_TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         raise ValueError("Telegram bot and channel credentials missing")
-    img = (Path(manifest_path).parent / data["assets"]["instagram_feed"]).resolve()
+    img = (Path(manifest_path).parent / data["assets"]["facebook_feed"]).resolve()
     # Telegram captions have their own limit; the full social copy stays in exports.
     caption = data["copy"]["captions"]["telegram"][:900]
     from ctos.review import sha_file

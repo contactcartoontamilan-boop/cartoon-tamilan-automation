@@ -99,6 +99,9 @@ def _contained_art(source, size, header_height, panel_y, ink):
         original = opened.convert("RGB")
     background = _crop(source, (width, art_height)).filter(
         ImageFilter.GaussianBlur(radius=max(8, round(width * 0.018))))
+    # Subdue blurred letterbox bands without changing the sharp, full cover.
+    background = Image.blend(
+        background, Image.new("RGB", background.size, ink), 0.24)
     canvas = Image.new("RGB", (width, height), ink)
     canvas.paste(background, (0, header_height))
     scale = min(width / original.width, art_height / original.height)
@@ -156,6 +159,7 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
     """Reserve footer and CTA FIRST, then fit title in the remaining panel."""
     usable_width = width - 2 * safe_x
     landscape = width > height
+    vertical_story = height >= round(width * 1.65)
     footer = "ORIGINAL TAMIL STORIES  •  CARTOONTAMILAN.IN"
 
     brand_font = _measured_font(
@@ -176,12 +180,19 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
     footer_h = footer_box[3] - footer_box[1]
     cta_h = cta_box[3] - cta_box[1]
 
-    footer_top = height - max(12, round(height * .016)) - footer_h
-    cta_top = footer_top - max(16, round(height * .024)) - cta_h
+    # Story/Reel artwork is tall and mobile UI obscures the bottom edge.
+    # Keep CTA and attribution clear of the bottom interaction controls.
+    footer_bottom_margin = (max(130, round(height * .095))
+                            if vertical_story else max(12, round(height * .016)))
+    footer_top = height - footer_bottom_margin - footer_h
+    cta_spacing = (max(54, round(height * .055))
+                   if vertical_story else max(16, round(height * .024)))
+    cta_top = footer_top - cta_spacing - cta_h
     title_limit = cta_top - max(16, round(height * .025))
 
-    ratios = ((.45, .49, .53, .57, .61)
-              if landscape else (.36, .39, .42, .45, .49))
+    ratios = ((.45, .49, .53, .57, .61) if landscape else
+              (.48, .51, .54, .57, .60) if vertical_story else
+              (.36, .39, .42, .45, .49))
     desired = 38 if landscape else 48
     max_title_size = min(84, round(width * .074))
     best = None
@@ -211,7 +222,10 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
     free_gap = cta_top - title_bottom
     preferred_gap = max(40, round(height * .05))
     if free_gap > preferred_gap:
-        shift = (free_gap - preferred_gap) // 2
+        # In Stories keep the headline visually connected to the CTA;
+        # in feed layouts retain the established balanced spacing.
+        shift = (free_gap - preferred_gap if vertical_story
+                 else (free_gap - preferred_gap) // 2)
         title_top += shift
         title_bottom += shift
     if title_bottom + max(16, round(height * .025)) > cta_top:
@@ -227,6 +241,8 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
         "title_font": title_font, "rows": rows, "stride": stride,
         "cta_top": cta_top, "footer_top": footer_top,
         "font_size": title_font.size,
+        "vertical_story": vertical_story,
+        "footer_bottom_margin": footer_bottom_margin,
     }
 
 
@@ -308,6 +324,8 @@ def render_one(source, title, destination, kind="instagram_feed",
         "artwork_contained_without_face_crop": True,
         "visible_artwork_bbox": art_bbox,
         "cta": cta,
+        "story_safe_area_applied": layout["vertical_story"],
+        "footer_bottom_margin": layout["footer_bottom_margin"],
         "source_text_free_not_automatically_verified": True,
     }
 

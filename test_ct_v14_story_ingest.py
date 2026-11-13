@@ -109,6 +109,20 @@ class FullStoryTests(unittest.TestCase):
         self.assertGreater(signals["html_bytes"], 0)
         self.assertNotIn(self.tamil[:30], json.dumps(signals, ensure_ascii=False))
 
+    def test_client_rendered_page_signals_without_exposing_script_text(self):
+        html = ('<html><head><title>Story</title></head><body>'
+                '<main><section class="story-reader">' + self.tamil + '</section></main>'
+                '<script>self.__next_f.push(["chapter secret token"])</script>'
+                '</body></html>')
+        from ct_v14_story_ingest import landing_page_signals
+        result = landing_page_signals(STORY, html)
+        self.assertTrue(result["framework_signals"]["next_flight"])
+        self.assertGreater(result["selector_characters"]["main"], 100)
+        self.assertTrue(result["candidate_containers"])
+        self.assertGreater(result["script_keyword_counts"]["chapter"], 0)
+        self.assertNotIn("secret token", json.dumps(result, ensure_ascii=False))
+        self.assertNotIn(self.tamil[:30], json.dumps(result, ensure_ascii=False))
+
     def test_slug_suffixed_chapter_link_without_crossing_story_boundary(self):
         sibling = STORY.rstrip("/") + "-chapter-3/"
         other = STORY.rstrip("/") + "-other-chapter-3/"

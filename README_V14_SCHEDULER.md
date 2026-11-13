@@ -24,9 +24,8 @@ journal checks remain active.
    `README_V14_SOCIAL_PUBLISH.md`. Instagram/Facebook require a public HTTPS
    image host reachable by Meta.
 5. Run one safe check:
-   `../ .venv/bin/python ct_v14_scheduler.py --poll-seconds 0`
-   (remove the space after `../`; the intended executable is
-   `./.venv/bin/python`). A not-due job should produce an empty result list.
+   `./.venv/bin/python ct_v14_scheduler.py --poll-seconds 0`. A not-due job
+   should produce an empty result list.
 6. Install a once-per-minute Oracle crontab entry after setup:
 
    ```cron

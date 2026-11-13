@@ -60,6 +60,11 @@ def prepare_scene_art(storyboard: dict, *, story_url: str, title: str,
                       seed: int = 20261113, generator=None) -> dict:
     prompts = scene_prompts(storyboard, story_url=story_url, title=title, bible=bible)
     folder = Path(outdir).resolve()
+    repo_root = Path(__file__).resolve().parent
+    if folder.is_relative_to(repo_root):
+        relative = folder.relative_to(repo_root)
+        if not relative.parts or relative.parts[0] not in ("output", "private"):
+            raise ValueError("Save generated story art only in git-ignored output/ or private/")
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "scene_prompts.json").write_text(
         json.dumps(prompts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

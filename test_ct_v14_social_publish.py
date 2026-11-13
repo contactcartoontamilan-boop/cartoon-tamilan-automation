@@ -166,6 +166,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(first["results"][1]["status"], "uncertain")
         self.assertEqual(calls.count("instagram"), 1)
         self.assertEqual(second["results"][1]["previous_status"], "uncertain")
+        self.assertEqual(second["status"], "needs_reconciliation")
 
     def test_live_preflight_all_before_first_send(self):
         calls = []

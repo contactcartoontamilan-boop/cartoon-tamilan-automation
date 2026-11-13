@@ -47,6 +47,9 @@ CTA_BY_KIND = {
     "linkedin_landscape": "READ STORY | LINK IN POST",
 }
 
+# Story/Short UI overlays obscure the top and bottom of a 9:16 image.
+VERTICAL_STORY_KINDS = frozenset(("instagram_story", "youtube_short"))
+
 DECORATED = {
     "premium_poster.jpg", "cinematic_poster.jpg", "story_poster.png",
     "instagram_feed.jpg", "square.jpg", "reel_cover.jpg",
@@ -85,7 +88,7 @@ def _crop(source, size, focus=(0.50, 0.42)):
     return large.crop((x, y, x + width, y + height))
 
 
-def _contained_art(source, size, header_height, panel_y, ink):
+def _contained_art(source, size, header_height, panel_y, ink, *, background_tint=0.0):
     """Preserve the entire licensed artwork in the visible art viewport.
 
     Blurred cover-fill is background ONLY; the sharp foreground is contain-fit.
@@ -99,6 +102,11 @@ def _contained_art(source, size, header_height, panel_y, ink):
         original = opened.convert("RGB")
     background = _crop(source, (width, art_height)).filter(
         ImageFilter.GaussianBlur(radius=max(8, round(width * 0.018))))
+    if background_tint:
+        # Subdue the blurred letterbox without changing any sharp cover pixels.
+        background = Image.blend(
+            background, Image.new("RGB", (width, art_height), ink),
+            background_tint)
     canvas = Image.new("RGB", (width, height), ink)
     canvas.paste(background, (0, header_height))
     scale = min(width / original.width, art_height / original.height)
@@ -152,7 +160,7 @@ def _fit_title(draw, title, font_path, width, height, max_size):
 
 
 def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
-            brand, cta):
+            brand, cta, kind=None):
     """Reserve footer and CTA FIRST, then fit title in the remaining panel."""
     usable_width = width - 2 * safe_x
     landscape = width > height
@@ -176,8 +184,15 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
     footer_h = footer_box[3] - footer_box[1]
     cta_h = cta_box[3] - cta_box[1]
 
-    footer_top = height - max(12, round(height * .016)) - footer_h
-    cta_top = footer_top - max(16, round(height * .024)) - cta_h
+    # Reserve the bottom ~13% of Stories/Shorts for platform UI overlays.
+    # Ordinary feed/landscape graphics retain their existing spacing.
+    vertical_story = kind in VERTICAL_STORY_KINDS
+    bottom_reserved = (round(height * .13) if vertical_story
+                       else max(12, round(height * .016)))
+    cta_gap = (max(24, round(height * .036)) if vertical_story
+               else max(16, round(height * .024)))
+    footer_top = height - bottom_reserved - footer_h
+    cta_top = footer_top - cta_gap - cta_h
     title_limit = cta_top - max(16, round(height * .025))
 
     ratios = ((.45, .49, .53, .57, .61)
@@ -216,7 +231,7 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
         title_bottom += shift
     if title_bottom + max(16, round(height * .025)) > cta_top:
         raise RuntimeError("Internal title/CTA layout error")
-    if cta_top + cta_h + max(16, round(height * .024)) > footer_top:
+    if cta_top + cta_h + cta_gap > footer_top:
         raise RuntimeError("Internal CTA/footer layout error")
     return {
         "brand": brand, "footer": footer, "cta": cta,
@@ -226,6 +241,7 @@ def _layout(draw, title, tamil_font, latin_font_path, width, height, safe_x,
         "title_bottom": title_bottom,
         "title_font": title_font, "rows": rows, "stride": stride,
         "cta_top": cta_top, "footer_top": footer_top,
+        "bottom_safe_area_px": bottom_reserved,
         "font_size": title_font.size,
     }
 
@@ -251,11 +267,13 @@ def render_one(source, title, destination, kind="instagram_feed",
     # Title/CTA/footer coordinates are measured before drawing. This fixes
     # V13's live 2026-11-12 CTA and Tamil title collide error.
     layout = _layout(d, title.strip(), tamil, english, w, h, safe_x,
-                     brand, cta)
-    header_height = max(64, round(h * .076))
+                     brand, cta, kind=kind)
+    header_height = (max(64, round(h * .12)) if kind in VERTICAL_STORY_KINDS
+                     else max(64, round(h * .076)))
     panel_y = layout["panel_y"]
-    canvas, art_bbox = _contained_art(source, (w, h), header_height, panel_y,
-                                      style["ink"])
+    canvas, art_bbox = _contained_art(
+        source, (w, h), header_height, panel_y, style["ink"],
+        background_tint=.28 if kind in VERTICAL_STORY_KINDS else 0.0)
     d = ImageDraw.Draw(canvas)
     d.rectangle((0, 0, w, header_height), fill=style["ink"])
     d.rectangle((0, panel_y, w, h), fill=style["ink"])
@@ -264,7 +282,12 @@ def render_one(source, title, destination, kind="instagram_feed",
 
     bf = layout["brand_font"]
     brand_box = _bbox(d, brand, bf)
-    brand_top = max(7, (header_height - (brand_box[3] - brand_box[1])) // 2)
+    brand_h = brand_box[3] - brand_box[1]
+    brand_top = max(7, (header_height - brand_h) // 2)
+    if kind in VERTICAL_STORY_KINDS:
+        brand_top = max(brand_top, round(h * .065))
+    if brand_top + brand_h > header_height:
+        raise RuntimeError("Brand extends beyond safe header")
     d.text((safe_x - brand_box[0], brand_top - brand_box[1]),
            brand, font=bf, fill="#FFFFFF")
 
@@ -302,6 +325,9 @@ def render_one(source, title, destination, kind="instagram_feed",
             safe_x, layout["title_top"], w - safe_x, layout["title_bottom"],
         ],
         "panel_y": panel_y,
+        "header_height": header_height,
+        "brand_top": brand_top,
+        "bottom_safe_area_px": layout["bottom_safe_area_px"],
         "cta_top": layout["cta_top"],
         "footer_top": layout["footer_top"],
         "art_source": str(source),

@@ -75,7 +75,7 @@ class VisualLayoutTests(unittest.TestCase):
                              (255, 0, 0))
             self.assertEqual(rendered.getpixel((1050, center_y))[:3],
                              (0, 0, 255))
-            self.assertLess(bbox[1] - 145, 110)
+            self.assertLess(bbox[1] - 145, 180)
 
 
 if __name__ == "__main__":

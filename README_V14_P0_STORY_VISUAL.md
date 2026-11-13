@@ -9,7 +9,7 @@ The original V13 main checkout and the existing V14 preview branch remain untouc
 2. `ct_v14_story_ingest.py`: reads accessible chapter pages **only from the exact CartoonTamilan novel path**. Follows discovered chapter links up to a configurable 40-page cap, saves source text, provenance and an **extractive/verbatim 70–340 word Tamil teaser draft**, plus a 6–12-scene storyboard. The draft is not a verified full-plot summary. Missing pages, JavaScript-only content, copyright, chapter ordering and completeness require human review.
 3. `ct_v14_scene_art.py`: creates scene-specific AI image prompts using an already **verified** local character bible and real narration. In default mode it saves prompts only. With explicit `--generate`, owner approvals and an installed local ComfyUI model, it can generate 6–12 original PNG images with distinct seeds, resolution checks and duplicate detection. No GPU/model or commercial rights are supplied by this code. Character continuity is **not automatically proven**.
 4. `comfyui_art_v9.py`: optional per-call seed parameter; existing calls keep the old default behavior.
-5. Offline tests and a new GitHub Actions workflow. **CI is not a live website, TTS, GPU or social API test.**
+5. \`ct_v14_control_center.py\`: an offline P2/P3 readiness JSON and local HTML dashboard showing draft counts and honest API integration status. It is **not** a live analytics/dashboard service.\n6. Offline tests and a new GitHub Actions workflow. **CI is not a live website, TTS, GPU or social API test.**
 
 ## Run from an isolated checkout (Termux or Oracle)
 
@@ -86,6 +86,18 @@ Nothing in this PR automatically uploads video, posts images or sends email.
 
 Inspect all 10 JPEGs and captions. Platform-specific CTA text **inside the
 images** does not make the associated platform API operational.
+
+## Generate a local all-channel readiness dashboard
+
+After running the image social queue, run:
+
+\`\`\`bash
+.venv/bin/python ct_v14_control_center.py
+\`\`\`
+
+Open \`output/v14/control_center/dashboard.html\` locally or copy it to
+Android Downloads. This **static offline page** reports what is missing and
+never attempts to publish or contact platform APIs.
 
 ## What is still pending
 

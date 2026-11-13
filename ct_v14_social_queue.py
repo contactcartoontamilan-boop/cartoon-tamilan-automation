@@ -116,6 +116,7 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
 
     queue = []
     exports = []
+    seen_platform_stories = {}
     for post in source.get("posts", []):
         platform = post.get("platform")
         if platform not in PLATFORM_IMAGE:
@@ -136,6 +137,12 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
         identity = hashlib.sha256(
             (platform + "\n" + url + "\n" + verified["sha256"] +
              "\n" + caption).encode("utf-8")).hexdigest()[:24]
+        key = (platform, url)
+        if key in seen_platform_stories:
+            if seen_platform_stories[key] != identity:
+                raise ValueError("Conflicting drafts for the same story and platform")
+            continue  # Idempotent duplicate discovery must not enqueue twice.
+        seen_platform_stories[key] = identity
         item = {
             "id": identity,
             "platform": platform,

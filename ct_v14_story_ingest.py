@@ -78,40 +78,79 @@ def discover_chapters(story_url: str, html: str, *, base_url: str | None = None)
 
 
 def landing_page_signals(story_url: str, html: str) -> dict:
-    """Bounded HTML diagnostics: structure and public URL paths, never story prose."""
+    """Bounded structural diagnostics only; do not expose story text or script data."""
     soup = BeautifulSoup(html, "html.parser")
     anchors = soup.select("a[href]")
     novel_paths: list[str] = []
+    internal_paths: list[str] = []
     for anchor in anchors:
         raw = anchor.get("href", "")
         if not isinstance(raw, str) or not raw:
             continue
         url = urldefrag(urljoin(story_url, raw))[0]
         if not _safe_story_url(url):
-            continue
+            # Only report paths on the owner's HTTPS host, never external URLs.
+            parsed = urlsplit(url)
+            if parsed.scheme != "https" or parsed.hostname not in (
+                    "cartoontamilan.in", "www.cartoontamilan.in"):
+                continue
         path = urlsplit(url).path
-        if path != urlsplit(story_url).path and path not in novel_paths:
-            novel_paths.append(path)
-        if len(novel_paths) >= 8:
-            break
+        if path not in internal_paths and len(internal_paths) < 20:
+            internal_paths.append(path)
+        if path.startswith("/novel/") and path != urlsplit(story_url).path:
+            if path not in novel_paths and len(novel_paths) < 8:
+                novel_paths.append(path)
+
     selectors = (".chapter-content", ".reading-content", ".entry-content",
-                 ".chapter-body", "article")
+                 ".chapter-body", "article", "main", "[role=main]",
+                 "[class*=chapter]", "[class*=story]", "[class*=novel]",
+                 "[class*=reader]", "[class*=content]", "[class*=prose]",
+                 "[id*=story]", "[id*=chapter]", "[id*=content]")
     selector_chars = {
         selector: max((len(node.get_text(" ", strip=True))
                        for node in soup.select(selector)), default=0)
         for selector in selectors
     }
+    # Report candidate container attributes and lengths, not copyrighted prose.
+    candidates = []
+    for node in soup.select("main, article, section, p, [class*=chapter], "
+                            "[class*=story], [class*=reader], [class*=content]"):
+        chars = len(node.get_text(" ", strip=True))
+        if chars < 120:
+            continue
+        classes = node.get("class", [])
+        candidates.append({
+            "tag": node.name,
+            "id": str(node.get("id", ""))[:70],
+            "classes": [str(value)[:70] for value in classes[:5]],
+            "text_characters": chars,
+        })
+    candidates.sort(key=lambda item: item["text_characters"], reverse=True)
+    scripts = soup.select("script")
+    script_content = "\n".join(node.get_text() for node in scripts)
     body = soup.body
     return {
         "html_bytes": len(html.encode("utf-8")),
         "page_title": soup.title.get_text(" ", strip=True)[:120] if soup.title else "",
         "anchor_count": len(anchors),
+        "internal_path_examples": internal_paths,
         "novel_path_examples": novel_paths,
         "body_visible_characters": len(body.get_text(" ", strip=True)) if body else 0,
         "selector_characters": selector_chars,
-        "script_tag_count": len(soup.select("script")),
+        "candidate_containers": candidates[:10],
+        "script_tag_count": len(scripts),
+        "framework_signals": {
+            "next_data": bool(soup.select_one("script#__NEXT_DATA__")),
+            "next_flight": "__next_f.push" in html,
+            "nuxt_data": "__NUXT__" in html,
+            "json_ld": bool(soup.select_one('script[type="application/ld+json"]')),
+        },
+        "script_keyword_counts": {
+            keyword: min(9999, len(re.findall(re.escape(keyword), script_content,
+                                              flags=re.IGNORECASE)))
+            for keyword in ("chapter", "episode", "read", "story", "novel")
+        },
     }
-
 
 def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> dict:
     """Collect accessible chapter text up to a bounded limit; never claim completeness."""

@@ -13,7 +13,7 @@ import re
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urldefrag, urljoin, urlsplit
+from urllib.parse import unquote, urldefrag, urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,49 +33,94 @@ def _safe_story_url(url: str) -> bool:
     return not (parsed.username or parsed.password or parsed.port not in (None, 443))
 
 
-def _same_story_chapter_path(story_url: str, candidate_url: str) -> bool:
-    """Accept nested chapters or a chapter-number suffix on the same novel slug.
+def _safe_owned_chapter_url(url: str) -> bool:
+    """Restrict chapter requests to the owner's HTTPS host and clean paths."""
+    parsed = urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (parsed.scheme == "https"
+            and parsed.hostname in ("cartoontamilan.in", "www.cartoontamilan.in")
+            and not parsed.username and not parsed.password
+            and port in (None, 443)
+            and not parsed.query and not parsed.fragment
+            and parsed.path.startswith(("/novel/", "/chapter/")))
 
-    Some sites store chapters at /novel/story-chapter-1/ rather than
-    /novel/story/chapter-1/. Never follow a different novel's slug.
-    """
+
+def _same_story_chapter_path(story_url: str, candidate_url: str) -> bool:
+    """Match the exact romanized story slug, never an unrelated story."""
     base_path = urlsplit(story_url).path.rstrip("/")
     candidate_path = urlsplit(candidate_url).path.rstrip("/")
     if candidate_path.startswith(base_path + "/"):
         return True
-    if not candidate_path.startswith(base_path):
+    if candidate_path.startswith(base_path):
+        suffix = candidate_path[len(base_path):]
+        if re.fullmatch(
+                r"[-_](?:chapter|episode|part)[-_]?[0-9]+(?:[-_][a-z0-9-]+)?",
+                suffix, flags=re.IGNORECASE):
+            return True
+    if not candidate_path.startswith("/chapter/"):
         return False
-    suffix = candidate_path[len(base_path):]
+    story_slug = unquote(base_path.rsplit("/", 1)[-1]).lower()
+    chapter_slug = unquote(candidate_path[len("/chapter/"):]).lower()
+    if not chapter_slug.startswith(story_slug + "-"):
+        return False
+    suffix = chapter_slug[len(story_slug) + 1:]
     return bool(re.fullmatch(
-        r"[-_](?:chapter|episode|part)[-_]?[0-9]+(?:[-_][a-z0-9-]+)?",
-        suffix, flags=re.IGNORECASE))
+        r"(?:chapter|episode|part)-[0-9]+(?:-[a-z0-9-]+)?", suffix))
+
+
+def _same_story_card_chapter_path(story_url: str, candidate_url: str) -> bool:
+    """Accept Tamil-numbered slugs ONLY when linked by this novel's chapter cards.
+
+    The novel page's chapter-card membership is a provisional association;
+    chapter content still requires review before narration or publishing.
+    """
+    if _same_story_chapter_path(story_url, candidate_url):
+        return True
+    path = urlsplit(candidate_url).path.rstrip("/")
+    if not path.startswith("/chapter/"):
+        return False
+    slug = unquote(path[len("/chapter/"):])
+    return bool(re.search(r"[\u0B80-\u0BFF]", slug)
+                and re.fullmatch(r"[\u0B80-\u0BFFa-zA-Z0-9-]+", slug)
+                and re.search(r"-(?:episode-)?[0-9]+(?:-[a-z0-9-]+)?$", slug))
 
 
 def discover_chapters(story_url: str, html: str, *, base_url: str | None = None) -> list[str]:
-    """Follow only same-novel chapter-looking links, nested or slug-suffixed."""
+    """Discover same-story /novel/ chapters and landing-card /chapter/ URLs."""
     if not _safe_story_url(story_url):
         raise ValueError("Only owner HTTPS /novel/ story URLs are allowed")
     base = base_url or story_url
+    is_landing = urlsplit(base).path.rstrip("/") == urlsplit(story_url).path.rstrip("/")
     soup = BeautifulSoup(html, "html.parser")
+    card_anchors = {
+        id(anchor)
+        for container in soup.select(".ctdu-chapter-cards, [class*='chapter-cards']")
+        for anchor in container.select("a[href]")
+    } if is_landing else set()
     links: list[str] = []
     for anchor in soup.select("a[href]"):
         raw = anchor.get("href", "")
         if not isinstance(raw, str) or not raw:
             continue
         url = urldefrag(urljoin(base, raw))[0]
-        if not _safe_story_url(url):
+        if not _safe_owned_chapter_url(url):
             continue
-        parsed = urlsplit(url)
-        if not _same_story_chapter_path(story_url, url):
+        in_story_card = id(anchor) in card_anchors
+        same_story = _same_story_chapter_path(story_url, url)
+        if not same_story and not (
+                in_story_card and _same_story_card_chapter_path(story_url, url)):
             continue
         label = anchor.get_text(" ", strip=True).lower()
-        path = parsed.path.lower()
-        if not any(hint in (label + " " + path) for hint in CHAPTER_HINTS):
+        path = urlsplit(url).path.lower()
+        if not in_story_card and not any(
+                hint in (label + " " + path) for hint in CHAPTER_HINTS):
             continue
         if url not in links:
             links.append(url)
     return links
-
 
 def landing_page_signals(story_url: str, html: str) -> dict:
     """Bounded structural diagnostics only; do not expose story text or script data."""
@@ -202,6 +247,7 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
     seen: set[str] = set()
     chapters: list[dict] = []
     failures: list[dict] = []
+    chapter_page_diagnostics: list[dict] = []
     while queue and len(seen) < max_pages:
         url = queue.popleft()
         if url in seen:
@@ -216,6 +262,15 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
                     queue.append(discovered)
             if len(body) < 120:
                 failures.append({"url": url, "reason": "No readable chapter body"})
+                if len(chapter_page_diagnostics) < 3:
+                    signals = landing_page_signals(url, html)
+                    chapter_page_diagnostics.append({
+                        "chapter_path": urlsplit(url).path,
+                        "body_visible_characters": signals["body_visible_characters"],
+                        "selector_characters": signals["selector_characters"],
+                        "candidate_containers": signals["candidate_containers"][:6],
+                        "framework_signals": signals["framework_signals"],
+                    })
                 continue
             truncated = len(body) > MAX_CHARS
             text = body[:MAX_CHARS]
@@ -247,6 +302,7 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         "story_url": story_url,
         "pages_examined": len(seen),
         "chapter_links_discovered": len(initial_links),
+        "landing_chapter_urls": initial_links,
         "chapter_link_examples": initial_links[:6],
         "landing_readable_words": landing_words,
         "landing_page_signals": landing_signals,
@@ -254,6 +310,7 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         "chapters_extracted": len(chapters),
         "chapters": chapters,
         "failures": failures,
+        "chapter_page_diagnostics": chapter_page_diagnostics,
         "more_links_unread": bool(queue),
         "completeness": "unverified_even_if_no_more_links_found",
         "copyright_and_story_review_required": True,
@@ -273,6 +330,7 @@ def diagnostic_summary(collected: dict) -> dict:
         "chapters_extracted": collected.get("chapters_extracted", 0),
         "extracted_words": collected.get("extracted_words", 0),
         "failures": collected.get("failures", []),
+        "chapter_page_diagnostics": collected.get("chapter_page_diagnostics", []),
         "more_links_unread": collected.get("more_links_unread", False),
         "completeness": collected.get("completeness", "unverified"),
         "published": False,
@@ -293,7 +351,22 @@ def draft_source_excerpt(collected: dict, *, target_words: int = 180,
         if not words:
             continue
         # Avoid introducing source text from other websites.
-        if not _safe_story_url(chapter.get("url", "")):
+        chapter_url = chapter.get("url", "")
+        story_url = collected.get("story_url", "")
+        if story_url:
+            source_allowed = (
+                _safe_owned_chapter_url(chapter_url)
+                and (
+                    _same_story_chapter_path(story_url, chapter_url)
+                    or (
+                        chapter_url in collected.get("landing_chapter_urls", [])
+                        and _same_story_card_chapter_path(story_url, chapter_url)
+                    )
+                )
+            )
+        else:
+            source_allowed = _safe_story_url(chapter_url)
+        if not source_allowed:
             raise ValueError("Unsafe source chapter URL")
         selected = words[:remaining]
         if selected:

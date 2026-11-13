@@ -99,6 +99,16 @@ class FullStoryTests(unittest.TestCase):
                 '<a href="chapter-1/">அத்தியாயம் 1</a>')
         self.assertEqual(discover_chapters(STORY, html), [C1])
 
+    def test_landing_diagnostics_report_structure_not_story_prose(self):
+        session = FakeSession(self.pages)
+        collected = collect_full_story(STORY, session=session)
+        signals = collected["landing_page_signals"]
+        self.assertEqual(signals["anchor_count"], 2)
+        self.assertIn("/novel/other-story/chapter-9/", signals["novel_path_examples"])
+        self.assertEqual(signals["selector_characters"]["article"], 0)
+        self.assertGreater(signals["html_bytes"], 0)
+        self.assertNotIn(self.tamil[:30], json.dumps(signals, ensure_ascii=False))
+
     def test_slug_suffixed_chapter_link_without_crossing_story_boundary(self):
         sibling = STORY.rstrip("/") + "-chapter-3/"
         other = STORY.rstrip("/") + "-other-chapter-3/"

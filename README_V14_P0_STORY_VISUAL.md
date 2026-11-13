@@ -35,6 +35,22 @@ To automatically discover the latest owned novel and read its **accessible** cha
   --max-pages 24 --words 180 --scenes 8
 ```
 
+If chapter ingestion says **Not enough real chapter words**, first inspect
+the actual website response (no fabricated story content and no live posting):
+
+\`\`\`bash
+.venv/bin/python ct_v14_story_ingest.py --discover-latest --inspect
+\`\`\`
+
+The output now shows the selected \`story_url\`, number of chapter links,
+readable landing-page words, extracted chapter words, and page failures.
+It also recognizes common same-novel sibling chapter links such as
+\`/novel/story-title-chapter-1/\`. A site that serves JavaScript-only
+chapter content, a login page or a novel with no accessible chapter text
+still cannot be converted into a faithful video script. In that case,
+use \`--story-url\` with a verified public chapter-bearing novel and
+share only the diagnostic counts/URLs, not private story text.
+
 Find the generated files:
 
 ```bash

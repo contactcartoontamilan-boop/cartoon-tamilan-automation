@@ -19,7 +19,7 @@ BIBLE = {
     "world_visuals": "forest river",
     "characters": [{"appearance": "green hair, green eyes, red tunic"}],
 }
-SCRIPT = " ".join(["அம்ருதா தனது நண்பர்களுடன் காட்டிற்குள் பயணித்தாள்."] * 90)
+SCRIPT = " ".join(["அம்ருதா தனது நண்பர்களுடன் காட்டிற்குள் பயணித்தாள்."] * 36)
 
 
 class SceneArtTests(unittest.TestCase):

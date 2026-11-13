@@ -154,7 +154,8 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
             "status": "pending_human_review",
             "requires_account_authorization": True,
             "published": False,
-            "publisher": ("existing_review_gated_adapter" if platform in
+            "publisher": ("v14_opt_in_review_gated_adapter" if platform == "x" else
+                          "existing_review_gated_adapter" if platform in
                           EXISTING_REVIEW_GATED_ADAPTERS else
                           "not_integrated_export_only"),
             "planned_time_for_review": None,

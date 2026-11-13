@@ -77,6 +77,42 @@ def discover_chapters(story_url: str, html: str, *, base_url: str | None = None)
     return links
 
 
+def landing_page_signals(story_url: str, html: str) -> dict:
+    """Bounded HTML diagnostics: structure and public URL paths, never story prose."""
+    soup = BeautifulSoup(html, "html.parser")
+    anchors = soup.select("a[href]")
+    novel_paths: list[str] = []
+    for anchor in anchors:
+        raw = anchor.get("href", "")
+        if not isinstance(raw, str) or not raw:
+            continue
+        url = urldefrag(urljoin(story_url, raw))[0]
+        if not _safe_story_url(url):
+            continue
+        path = urlsplit(url).path
+        if path != urlsplit(story_url).path and path not in novel_paths:
+            novel_paths.append(path)
+        if len(novel_paths) >= 8:
+            break
+    selectors = (".chapter-content", ".reading-content", ".entry-content",
+                 ".chapter-body", "article")
+    selector_chars = {
+        selector: max((len(node.get_text(" ", strip=True))
+                       for node in soup.select(selector)), default=0)
+        for selector in selectors
+    }
+    body = soup.body
+    return {
+        "html_bytes": len(html.encode("utf-8")),
+        "page_title": soup.title.get_text(" ", strip=True)[:120] if soup.title else "",
+        "anchor_count": len(anchors),
+        "novel_path_examples": novel_paths,
+        "body_visible_characters": len(body.get_text(" ", strip=True)) if body else 0,
+        "selector_characters": selector_chars,
+        "script_tag_count": len(soup.select("script")),
+    }
+
+
 def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> dict:
     """Collect accessible chapter text up to a bounded limit; never claim completeness."""
     if not _safe_story_url(story_url):
@@ -85,6 +121,7 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         raise ValueError("max_pages must be 1–40")
     http = session or requests
     landing = _get_html(story_url, http)
+    landing_signals = landing_page_signals(story_url, landing)
     landing_body = extract_chapter_text(landing, limit_chars=MAX_CHARS + 1)
     landing_words = len(normalize_script(landing_body).split())
     initial_links = discover_chapters(story_url, landing)
@@ -139,6 +176,7 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         "chapter_links_discovered": len(initial_links),
         "chapter_link_examples": initial_links[:6],
         "landing_readable_words": landing_words,
+        "landing_page_signals": landing_signals,
         "extracted_words": sum(len(normalize_script(ch["text"]).split()) for ch in chapters),
         "chapters_extracted": len(chapters),
         "chapters": chapters,
@@ -158,6 +196,7 @@ def diagnostic_summary(collected: dict) -> dict:
         "chapter_links_discovered": collected.get("chapter_links_discovered", 0),
         "chapter_link_examples": collected.get("chapter_link_examples", []),
         "landing_readable_words": collected.get("landing_readable_words", 0),
+        "landing_page_signals": collected.get("landing_page_signals", {}),
         "chapters_extracted": collected.get("chapters_extracted", 0),
         "extracted_words": collected.get("extracted_words", 0),
         "failures": collected.get("failures", []),

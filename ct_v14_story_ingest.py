@@ -174,7 +174,12 @@ def save_draft(collected: dict, draft: dict, outdir: str | Path) -> dict:
     """Keep all fetched story text local, under the ignored output/ folder."""
     output = Path(outdir).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    if output.name == ".git" or ".git" in output.parts:
+    repo_root = Path(__file__).resolve().parent
+    if output.is_relative_to(repo_root):
+        relative = output.relative_to(repo_root)
+        if not relative.parts or relative.parts[0] not in ("output", "private"):
+            raise ValueError("Save story text only in git-ignored output/ or private/")
+    if ".git" in output.parts:
         raise ValueError("Do not write story text into .git")
     (output / "source_chapters.json").write_text(
         json.dumps(collected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

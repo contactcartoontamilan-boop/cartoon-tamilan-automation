@@ -98,7 +98,10 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         (datetime.fromisoformat(j["scheduled_at"]).astimezone(IST) for j in jobs),
         default=None,
     )
-    slot = _next_daily_slot(last_slot or datetime.now(IST))
+    if last_slot is None:
+        slot = datetime.now(IST) + timedelta(minutes=1)
+    else:
+        slot = _next_daily_slot(last_slot)
     added = 0
     for story_url in grouped:
         if not ALLOWED.issubset(grouped[story_url]):

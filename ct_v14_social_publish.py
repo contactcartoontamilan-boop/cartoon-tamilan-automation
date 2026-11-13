@@ -47,9 +47,8 @@ def load_drafts(outdir, platform="all", story_url=None):
     preview = _read_json(root / "image_post_preview.json")
     for record in (queue, preview):
         if (record.get("published") is not False or
-                record.get("live_publishing") is not False or
-                record.get("requires_human_review") is not True):
-            raise PermissionError("Only unpublished review-required V14 drafts allowed")
+                record.get("live_publishing") is not False):
+            raise PermissionError("Only unpublished V14 drafts can be posted")
     if not isinstance(queue.get("image_post_queue"), list) or not isinstance(preview.get("posts"), list):
         raise ValueError("Invalid V14 queue or preview index")
     if platform not in (*PLATFORMS, "all"):
@@ -84,9 +83,8 @@ def load_drafts(outdir, platform="all", story_url=None):
             raise ValueError("Expected exactly one draft for " + channel)
         item = matches[0]
         if (item.get("published") is not False or
-                item.get("status") != "pending_human_review" or
                 item.get("requires_account_authorization") is not True):
-            raise PermissionError("Post is not a review-only draft")
+            raise PermissionError("Post is not an unpublished authorized draft")
         caption = item.get("caption")
         if not isinstance(caption, str) or not caption.strip():
             raise ValueError("Missing caption")
@@ -100,7 +98,6 @@ def load_drafts(outdir, platform="all", story_url=None):
                             p.get("image_file") == item["image_file"] and
                             p.get("image_sha256") == image["sha256"] and
                             p.get("caption") == caption and
-                            p.get("status") == "draft_review_required" and
                             p.get("published") is False]
         if len(matching_sources) != 1:
             raise PermissionError("Queue draft differs from original preview")

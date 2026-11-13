@@ -26,7 +26,8 @@ class ControlCenterTests(unittest.TestCase):
         self.assertEqual(report["scene_images_generated"], 1)
         self.assertEqual(report["story_chapters_extracted"], 2)
         self.assertFalse(report["platforms"]["instagram"]["live_publishing_verified"])
-        self.assertEqual(report["platforms"]["x"]["adapter"], "not_integrated")
+        self.assertEqual(report["platforms"]["x"]["adapter"],
+                         "v14_opt_in_gated_not_authorized_or_tested")
         self.assertFalse(report["video_file_verified"])
         self.assertFalse(report["published"])
         with tempfile.TemporaryDirectory() as temp:

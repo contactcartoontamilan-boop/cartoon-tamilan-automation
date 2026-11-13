@@ -97,6 +97,20 @@ class SocialQueueTests(unittest.TestCase):
         self.assertEqual([x["id"] for x in first["image_post_queue"]],
                          [x["id"] for x in second["image_post_queue"]])
 
+    def test_duplicate_platform_story_is_not_queued_twice(self):
+        self.index["posts"].append(dict(self.index["posts"][0]))
+        self.write_index()
+        result = prepare_social_queue(self.root)
+        self.assertEqual(result["image_post_queue_count"], 7)
+
+    def test_conflicting_duplicate_platform_story_rejected(self):
+        duplicate = dict(self.index["posts"][0])
+        duplicate["caption"] = "A different caption"
+        self.index["posts"].append(duplicate)
+        self.write_index()
+        with self.assertRaisesRegex(ValueError, "Conflicting drafts"):
+            prepare_social_queue(self.root)
+
     def test_tampered_image_is_rejected(self):
         post = self.index["posts"][0]
         path = self.root / post["image_file"]

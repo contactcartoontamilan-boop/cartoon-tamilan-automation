@@ -1,0 +1,230 @@
+"""V14 website chapter collector + source-excerpt storyboard. NEVER publishes.
+
+Only reads public HTTPS /novel/ URLs on the owner's site. Source text is
+untrusted data and is never executed, sent to an LLM, or treated as instructions.
+A contiguous, verbatim excerpt is a DRAFT teaser, NOT a plot summary.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from collections import deque
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urldefrag, urljoin, urlsplit
+
+import requests
+from bs4 import BeautifulSoup
+
+from ctos.v14_story import normalize_script, plan_story, save_plan
+from v12_story_reader import extract_chapter_text, owned_story_url, _get_html
+
+CHAPTER_HINTS = ("chapter", "episode", "part-", "அத்தியாயம்", "பாகம்", "தொடர்")
+MAX_PAGES = 40
+MAX_CHARS = 50000
+
+
+def _safe_story_url(url: str) -> bool:
+    if not owned_story_url(url):
+        return False
+    parsed = urlsplit(url)
+    return not (parsed.username or parsed.password or parsed.port not in (None, 443))
+
+
+def discover_chapters(story_url: str, html: str, *, base_url: str | None = None) -> list[str]:
+    """Follow only chapter-looking links under the requested novel's path."""
+    if not _safe_story_url(story_url):
+        raise ValueError("Only owner HTTPS /novel/ story URLs are allowed")
+    root = urlsplit(story_url).path.rstrip("/") + "/"
+    base = base_url or story_url
+    soup = BeautifulSoup(html, "html.parser")
+    links: list[str] = []
+    for anchor in soup.select("a[href]"):
+        raw = anchor.get("href", "")
+        if not isinstance(raw, str) or not raw:
+            continue
+        url = urldefrag(urljoin(base, raw))[0]
+        if not _safe_story_url(url):
+            continue
+        parsed = urlsplit(url)
+        if not parsed.path.startswith(root) or parsed.path.rstrip("/") == root.rstrip("/"):
+            continue
+        label = anchor.get_text(" ", strip=True).lower()
+        path = parsed.path.lower()
+        if not any(hint in (label + " " + path) for hint in CHAPTER_HINTS):
+            continue
+        if url not in links:
+            links.append(url)
+    return links
+
+
+def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> dict:
+    """Collect accessible chapter text up to a bounded limit; never claim completeness."""
+    if not _safe_story_url(story_url):
+        raise ValueError("Only HTTPS CartoonTamilan /novel/ URLs are allowed")
+    if not 1 <= max_pages <= MAX_PAGES:
+        raise ValueError("max_pages must be 1–40")
+    http = session or requests
+    landing = _get_html(story_url, http)
+    queue = deque(discover_chapters(story_url, landing))
+    seen: set[str] = set()
+    chapters: list[dict] = []
+    failures: list[dict] = []
+    while queue and len(seen) < max_pages:
+        url = queue.popleft()
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            html = _get_html(url, http)
+            # Use existing selector-based extraction; cap and flag potential truncation.
+            body = extract_chapter_text(html, limit_chars=MAX_CHARS + 1)
+            for discovered in discover_chapters(story_url, html, base_url=url):
+                if discovered not in seen and discovered not in queue:
+                    queue.append(discovered)
+            if len(body) < 120:
+                failures.append({"url": url, "reason": "No readable chapter body"})
+                continue
+            truncated = len(body) > MAX_CHARS
+            text = body[:MAX_CHARS]
+            chapters.append({
+                "url": url,
+                "text": text,
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "characters": len(text),
+                "potentially_truncated": truncated,
+                "editorially_verified": False,
+            })
+        except (requests.RequestException, ValueError) as exc:
+            failures.append({"url": url, "reason": type(exc).__name__})
+    # A single-page novel is possible; do not silently confuse its intro with
+    # a verified complete chapter. Preserve the explicit source classification.
+    if not chapters and not seen:
+        landing_text = extract_chapter_text(landing, limit_chars=MAX_CHARS + 1)
+        if len(landing_text) >= 700:
+            text = landing_text[:MAX_CHARS]
+            chapters.append({
+                "url": story_url, "text": text,
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "characters": len(text),
+                "potentially_truncated": len(landing_text) > MAX_CHARS,
+                "editorially_verified": False,
+                "source_kind": "landing_article_unverified",
+            })
+    return {
+        "version": 14,
+        "story_url": story_url,
+        "pages_examined": len(seen),
+        "chapters_extracted": len(chapters),
+        "chapters": chapters,
+        "failures": failures,
+        "more_links_unread": bool(queue),
+        "completeness": "unverified_even_if_no_more_links_found",
+        "copyright_and_story_review_required": True,
+        "published": False,
+    }
+
+
+def draft_source_excerpt(collected: dict, *, target_words: int = 180,
+                         scene_count: int = 8) -> dict:
+    """Create a verbatim teaser from real chapter text, with URL provenance."""
+    if not 70 <= target_words <= 340:
+        raise ValueError("target_words must be 70–340")
+    pieces: list[str] = []
+    sources: list[dict] = []
+    remaining = target_words
+    for chapter in collected.get("chapters", []):
+        body = normalize_script(chapter.get("text", ""))
+        words = body.split()
+        if not words:
+            continue
+        # Avoid introducing source text from other websites.
+        if not _safe_story_url(chapter.get("url", "")):
+            raise ValueError("Unsafe source chapter URL")
+        selected = words[:remaining]
+        if selected:
+            pieces.extend(selected)
+            sources.append({"url": chapter["url"], "words_used": len(selected),
+                            "sha256": chapter["sha256"]})
+            remaining -= len(selected)
+        if remaining == 0:
+            break
+    narration = " ".join(pieces)
+    if len(pieces) < 70:
+        raise ValueError("Not enough real chapter words for a 60–120s draft; do not invent")
+    if not re.search(r"[\u0B80-\u0BFF]", narration):
+        raise ValueError("Tamil chapter text not detected; human review needed")
+    storyboard = plan_story(narration, scene_count)
+    return {
+        "narration": narration,
+        "storyboard": storyboard,
+        "provenance": sources,
+        "draft_type": "verbatim_source_excerpt_not_summary",
+        "source_faithfulness": "words copied in source order; meaning not automatically verified",
+        "story_completeness": collected.get("completeness", "unknown"),
+        "requires_human_review": True,
+        "approved_for_video": False,
+        "published": False,
+    }
+
+
+def save_draft(collected: dict, draft: dict, outdir: str | Path) -> dict:
+    """Keep all fetched story text local, under the ignored output/ folder."""
+    output = Path(outdir).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    if output.name == ".git" or ".git" in output.parts:
+        raise ValueError("Do not write story text into .git")
+    (output / "source_chapters.json").write_text(
+        json.dumps(collected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output / "narration_draft_ta.txt").write_text(
+        draft["narration"] + "\n", encoding="utf-8")
+    save_plan(draft["storyboard"], output / "storyboard_draft.json")
+    manifest = {
+        "version": 14, "created_utc": datetime.now(timezone.utc).isoformat(),
+        "story_url": collected["story_url"],
+        "chapters_extracted": collected["chapters_extracted"],
+        "source_provenance": draft["provenance"],
+        "draft_type": draft["draft_type"],
+        "story_completeness": draft["story_completeness"],
+        "narration_file": "narration_draft_ta.txt",
+        "storyboard_file": "storyboard_draft.json",
+        "review_status": "needs_human_story_and_rights_review",
+        "unique_scene_art_generated": False,
+        "tamil_voice_generated": False,
+        "video_generated": False,
+        "published": False,
+        "live_publishing": False,
+    }
+    (output / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Read owned website chapters and create a review-only Tamil teaser")
+    parser.add_argument("--story-url", required=True)
+    parser.add_argument("--outdir", default="output/v14/full_story")
+    parser.add_argument("--max-pages", type=int, default=24)
+    parser.add_argument("--words", type=int, default=180)
+    parser.add_argument("--scenes", type=int, default=8)
+    args = parser.parse_args(argv)
+    collected = collect_full_story(args.story_url, max_pages=args.max_pages)
+    draft = draft_source_excerpt(collected, target_words=args.words,
+                                 scene_count=args.scenes)
+    digest = hashlib.sha256(args.story_url.encode("utf-8")).hexdigest()[:16]
+    target = Path(args.outdir) / digest
+    manifest = save_draft(collected, draft, target)
+    print(json.dumps({"status": manifest["review_status"],
+                      "chapters_extracted": collected["chapters_extracted"],
+                      "story_completeness": collected["completeness"],
+                      "narration_file": str(target / "narration_draft_ta.txt"),
+                      "storyboard_file": str(target / "storyboard_draft.json"),
+                      "published": False}, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

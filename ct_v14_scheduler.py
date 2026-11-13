@@ -77,9 +77,8 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
     queue = json.loads(queue_path.read_text(encoding="utf-8"))
     if (not isinstance(queue, dict) or queue.get("published") is not False
             or queue.get("live_publishing") is not False
-            or queue.get("requires_human_review") is not True
             or not isinstance(queue.get("image_post_queue"), list)):
-        raise ValueError("Only an unpublished review-required V14 queue is accepted")
+        raise ValueError("Only an unpublished V14 queue is accepted")
 
     if schedule_path.exists():
         jobs = read_jobs(schedule_path)

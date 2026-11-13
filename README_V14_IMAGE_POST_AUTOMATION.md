@@ -2,7 +2,7 @@
 
 This is the first isolated V14 automation step. It **reuses the existing V13
 website story discovery, same-site cover fetch, Tamil typography and
-10-platform image-layout pipeline** rather than copying or modifying V13 code.
+10-format image-layout pipeline** rather than copying or modifying V13 code.
 
 ## What the new command does
 
@@ -90,3 +90,70 @@ The existing V13 renderer also saves an email **draft**, but does not send it.
   run and verified by the owner; GitHub commits alone do not produce a
   server-side JPG.
 - This branch is a proposed review-first addition, not a V13 deployment.
+
+## All-platform image exports and review queue (V14)
+
+The first real Termux test on 2026-11-13 succeeded after rebuilding Pillow
+with RAQM support: 1 website story, 8 platform-specific post drafts, 0
+published. The site discovery and JPG renderer work in that local setup.
+Visual quality still needs owner review.
+
+New command, after fetching the updated isolated feature branch:
+
+```bash
+cd ~/cartoon-tamilan-v14-image-post-test
+git pull --ff-only origin feature/v14-auto-image-post-preview
+.venv/bin/python -m unittest test_ct_v14_social_queue.py -v
+.venv/bin/python ct_v14_social_queue.py prepare
+.venv/bin/python ct_v14_social_queue.py status
+```
+
+If the existing image preview index is missing or stale, use the single
+website-discovery + image generation + queue command:
+
+```bash
+.venv/bin/python ct_v14_social_queue.py create-and-prepare --limit 1
+```
+
+The generated `output/v14/image_posts/social_queue.json` includes:
+
+- **10 actual JPEG image sizes**: Instagram feed and Story, Facebook feed
+  and landscape, YouTube thumbnail and Shorts cover, Pinterest Pin,
+  X landscape, Threads feed, LinkedIn landscape.
+- **7 image post drafts**: Instagram, Facebook, Pinterest, Threads, X,
+  LinkedIn, Telegram. Every caption/image is checked and pending review.
+- **1 YouTube thumbnail-only draft**: cannot be published as a video.
+- **3 video-required workflows**: Instagram Reels, Facebook Reels,
+  YouTube Shorts. These need an actual MP4 and are NOT ready to publish.
+
+The existing platform adapters support **only Meta (Facebook/Instagram) and
+Telegram**, with extra explicit rights/visual/copy approvals and credential
+gates. Pinterest, Threads, X, LinkedIn and YouTube are still **export-only**.
+This V14 queue does not call even the existing Meta/Telegram adapters.
+Never put access tokens in GitHub commits.
+
+Optional suggested review slots (no cron job or actual publication):
+
+```bash
+.venv/bin/python ct_v14_social_queue.py prepare \
+  --start-at '2026-11-15T09:00:00+05:30' \
+  --interval-minutes 30
+```
+
+**To open a saved image on Android Termux** (storage permission already
+granted and Downloads link present):
+
+```bash
+cp output/v14/image_posts/2026-11-13/61fc40816eb3b07f/media/instagram_feed.jpg \
+  ~/storage/downloads/CartoonTamilan_First_Post.jpg
+```
+
+If Android denies the copy, verify `ls -ld ~/storage/downloads` and grant
+Termux the Android storage permission. Re-running `termux-setup-storage`
+may ask before rebuilding the storage symlinks; it does not delete the
+actual shared storage files.
+
+For future **true auto-posting**, use official platform APIs with explicit
+account authorization, a durable idempotency journal, platform-specific
+media limits, human approval, retry/reconciliation logic, and a separately
+enabled scheduler. The present queue is deliberately review-only.

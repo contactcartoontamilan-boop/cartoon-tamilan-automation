@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - feature/v14-auto-image-post-preview
+      - feature/v14-p0-story-ingestion-visual-qa
   workflow_dispatch:
 
 permissions:

@@ -15,7 +15,7 @@ from ct_v14_story_ingest import (
     collect_full_story, discover_chapters, discover_latest_owned_story,
     diagnostic_summary, draft_source_excerpt, main, save_draft,
 )
-from ctos.creative import CTA_BY_KIND, SIZES, _contained_art
+from ctos.creative import CTA_BY_KIND, SIZES, _contained_art, render_one
 from ctos.platforms import PLATFORM_IMAGE
 
 
@@ -277,6 +277,43 @@ class VisualSafetyTests(unittest.TestCase):
             center_y = (bbox[1] + bbox[3]) // 2
             self.assertEqual(rendered.getpixel((30, center_y))[:3], (255, 0, 0))
             self.assertEqual(rendered.getpixel((1050, center_y))[:3], (0, 0, 255))
+
+
+    def test_story_short_safe_areas_and_compact_title_cta(self):
+        # Platform chrome must not obscure the brand or lower CTA/footer.
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "licensed_cover.png"
+            Image.new("RGB", (1200, 675), "#507060").save(source)
+            title = "அமிர்த உலகப் பேரங்காடி: கனவுகளின் கடை"
+            for kind in ("instagram_story", "youtube_short"):
+                with self.subTest(kind=kind):
+                    row = render_one(source, title, Path(temp) / (kind + ".jpg"),
+                                     kind=kind)
+                    height = SIZES[kind][1]
+                    self.assertGreaterEqual(row["brand_top"], round(height * .06))
+                    self.assertGreaterEqual(row["bottom_safe_area_px"],
+                                            round(height * .12))
+                    self.assertLess(row["title_bbox_region"][3] + 12,
+                                    row["cta_top"])
+                    self.assertLess(row["cta_top"], row["footer_top"])
+                    self.assertLess(row["cta_top"] - row["title_bbox_region"][3],
+                                    round(height * .12))
+                    self.assertGreaterEqual(row["visible_artwork_bbox"][1],
+                                            row["header_height"])
+                    self.assertEqual(row["cta"], CTA_BY_KIND[kind])
+                    self.assertTrue((Path(temp) / (kind + ".jpg")).is_file())
+
+    def test_platform_cta_is_not_shared_across_instagram_and_facebook(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "cover.png"
+            Image.new("RGB", (800, 450), "#506070").save(source)
+            title = "அமிர்த உலகப் பேரங்காடி"
+            for kind in ("instagram_feed", "facebook_feed"):
+                row = render_one(source, title, Path(temp) / (kind + ".jpg"),
+                                 kind=kind)
+                self.assertEqual(row["cta"], CTA_BY_KIND[kind])
+            self.assertIn("LINK IN BIO", CTA_BY_KIND["instagram_feed"])
+            self.assertIn("LINK IN POST", CTA_BY_KIND["facebook_feed"])
 
 
 if __name__ == "__main__":

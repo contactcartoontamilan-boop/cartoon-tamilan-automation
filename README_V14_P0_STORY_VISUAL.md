@@ -27,7 +27,7 @@ python3 -m venv .venv
 .venv/bin/python -m unittest test_ct_v14_story_ingest.py test_ct_v14_scene_art.py -v
 ```
 
-To read the **accessible** chapters of a story and make a review draft:
+To automatically discover the latest owned novel and read its **accessible** chapters:\n\n\`\`\`bash\n.venv/bin/python ct_v14_story_ingest.py --discover-latest --max-pages 24 --words 180 --scenes 8\n\`\`\`\n\nOr read a specific story and make a review draft:
 
 ```bash
 .venv/bin/python ct_v14_story_ingest.py \

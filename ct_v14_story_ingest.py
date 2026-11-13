@@ -33,11 +33,28 @@ def _safe_story_url(url: str) -> bool:
     return not (parsed.username or parsed.password or parsed.port not in (None, 443))
 
 
+def _same_story_chapter_path(story_url: str, candidate_url: str) -> bool:
+    """Accept nested chapters or a chapter-number suffix on the same novel slug.
+
+    Some sites store chapters at /novel/story-chapter-1/ rather than
+    /novel/story/chapter-1/. Never follow a different novel's slug.
+    """
+    base_path = urlsplit(story_url).path.rstrip("/")
+    candidate_path = urlsplit(candidate_url).path.rstrip("/")
+    if candidate_path.startswith(base_path + "/"):
+        return True
+    if not candidate_path.startswith(base_path):
+        return False
+    suffix = candidate_path[len(base_path):]
+    return bool(re.fullmatch(
+        r"[-_](?:chapter|episode|part)[-_]?[0-9]+(?:[-_][a-z0-9-]+)?",
+        suffix, flags=re.IGNORECASE))
+
+
 def discover_chapters(story_url: str, html: str, *, base_url: str | None = None) -> list[str]:
-    """Follow only chapter-looking links under the requested novel's path."""
+    """Follow only same-novel chapter-looking links, nested or slug-suffixed."""
     if not _safe_story_url(story_url):
         raise ValueError("Only owner HTTPS /novel/ story URLs are allowed")
-    root = urlsplit(story_url).path.rstrip("/") + "/"
     base = base_url or story_url
     soup = BeautifulSoup(html, "html.parser")
     links: list[str] = []
@@ -49,7 +66,7 @@ def discover_chapters(story_url: str, html: str, *, base_url: str | None = None)
         if not _safe_story_url(url):
             continue
         parsed = urlsplit(url)
-        if not parsed.path.startswith(root) or parsed.path.rstrip("/") == root.rstrip("/"):
+        if not _same_story_chapter_path(story_url, url):
             continue
         label = anchor.get_text(" ", strip=True).lower()
         path = parsed.path.lower()
@@ -68,7 +85,10 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         raise ValueError("max_pages must be 1–40")
     http = session or requests
     landing = _get_html(story_url, http)
-    queue = deque(discover_chapters(story_url, landing))
+    landing_body = extract_chapter_text(landing, limit_chars=MAX_CHARS + 1)
+    landing_words = len(normalize_script(landing_body).split())
+    initial_links = discover_chapters(story_url, landing)
+    queue = deque(initial_links)
     seen: set[str] = set()
     chapters: list[dict] = []
     failures: list[dict] = []
@@ -102,14 +122,13 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
     # A single-page novel is possible; do not silently confuse its intro with
     # a verified complete chapter. Preserve the explicit source classification.
     if not chapters and not seen:
-        landing_text = extract_chapter_text(landing, limit_chars=MAX_CHARS + 1)
-        if len(landing_text) >= 700:
-            text = landing_text[:MAX_CHARS]
+        if len(landing_body) >= 700:
+            text = landing_body[:MAX_CHARS]
             chapters.append({
                 "url": story_url, "text": text,
                 "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 "characters": len(text),
-                "potentially_truncated": len(landing_text) > MAX_CHARS,
+                "potentially_truncated": len(landing_body) > MAX_CHARS,
                 "editorially_verified": False,
                 "source_kind": "landing_article_unverified",
             })
@@ -117,12 +136,33 @@ def collect_full_story(story_url: str, *, session=None, max_pages: int = 24) -> 
         "version": 14,
         "story_url": story_url,
         "pages_examined": len(seen),
+        "chapter_links_discovered": len(initial_links),
+        "chapter_link_examples": initial_links[:6],
+        "landing_readable_words": landing_words,
+        "extracted_words": sum(len(normalize_script(ch["text"]).split()) for ch in chapters),
         "chapters_extracted": len(chapters),
         "chapters": chapters,
         "failures": failures,
         "more_links_unread": bool(queue),
         "completeness": "unverified_even_if_no_more_links_found",
         "copyright_and_story_review_required": True,
+        "published": False,
+    }
+
+
+def diagnostic_summary(collected: dict) -> dict:
+    """Share counts and URLs without leaking the entire original story text."""
+    return {
+        "story_url": collected.get("story_url"),
+        "pages_examined": collected.get("pages_examined", 0),
+        "chapter_links_discovered": collected.get("chapter_links_discovered", 0),
+        "chapter_link_examples": collected.get("chapter_link_examples", []),
+        "landing_readable_words": collected.get("landing_readable_words", 0),
+        "chapters_extracted": collected.get("chapters_extracted", 0),
+        "extracted_words": collected.get("extracted_words", 0),
+        "failures": collected.get("failures", []),
+        "more_links_unread": collected.get("more_links_unread", False),
+        "completeness": collected.get("completeness", "unverified"),
         "published": False,
     }
 
@@ -228,11 +268,26 @@ def main(argv=None) -> int:
     parser.add_argument("--max-pages", type=int, default=24)
     parser.add_argument("--words", type=int, default=180)
     parser.add_argument("--scenes", type=int, default=8)
+    parser.add_argument("--inspect", action="store_true",
+                        help="Print source/chapter diagnostics without generating narration")
     args = parser.parse_args(argv)
     story_url = discover_latest_owned_story() if args.discover_latest else args.story_url
     collected = collect_full_story(story_url, max_pages=args.max_pages)
-    draft = draft_source_excerpt(collected, target_words=args.words,
-                                 scene_count=args.scenes)
+    if args.inspect:
+        print(json.dumps({"status": "diagnostic_only", **diagnostic_summary(collected)},
+                         ensure_ascii=False, indent=2))
+        return 0
+    try:
+        draft = draft_source_excerpt(collected, target_words=args.words,
+                                     scene_count=args.scenes)
+    except ValueError as exc:
+        print(json.dumps({
+            "status": "insufficient_or_invalid_chapter_text",
+            "error": str(exc),
+            "diagnostics": diagnostic_summary(collected),
+            "next_step": "Inspect chapter_link_examples and try a verified --story-url; do not invent missing story text",
+        }, ensure_ascii=False, indent=2))
+        return 2
     digest = hashlib.sha256(story_url.encode("utf-8")).hexdigest()[:16]
     target = Path(args.outdir) / digest
     manifest = save_draft(collected, draft, target)

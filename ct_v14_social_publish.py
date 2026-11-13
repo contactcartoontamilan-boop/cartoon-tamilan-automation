@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""V14 review-gated Facebook, Instagram and X image publishing.
+"""V14 automated Facebook, Instagram and X image publishing.
 
-Safe default: offline dry-run. A live run requires an approved V13 asset
-snapshot, legacy story rights/copy approval, explicit switches and credentials.
-No background scheduler is started. SQLite records an attempt BEFORE any
-network call so crashes/timeouts cannot silently duplicate posts.
+Safe default: offline dry-run. Live posting uses automated queue, media,
+caption, account, HTTPS-host and duplicate checks. It does not wait for manual
+content approvals. SQLite records an attempt BEFORE network calls.
 """
 from __future__ import annotations
 
@@ -118,14 +117,26 @@ def load_drafts(outdir, platform="all", story_url=None):
     return selected
 
 
-def _require_approved(item):
-    from campaign_v9 import get_approval, load_approvals
-    from ctos.review import require_approval
 
-    require_approval(item["manifest"])
-    approval = get_approval({"link": item["story_url"]}, load_approvals())
-    if not approval or approval.get("v10_visual_policy_approved") is not True:
-        raise PermissionError("Story rights, copy and V10 visual approval required")
+def _automated_content_check(item):
+    """Apply deterministic checks and standard brand tags before publishing."""
+    title = str(item.get("story_title", "")).strip()
+    caption = str(item.get("caption", "")).strip()
+    if not owned_story_url(item.get("story_url")):
+        raise PermissionError("Only CartoonTamilan story links can be posted")
+    if not title:
+        raise ValueError("Story title is missing")
+    if not caption:
+        raise ValueError("Caption is empty")
+    if title.casefold() not in caption.casefold():
+        caption = title + "\n\n" + caption
+    for tag in ("#CartoonTamilan", "#TamilStories", "#TamilNovels"):
+        if tag.casefold() not in caption.casefold():
+            caption += "\n" + tag
+    if len(caption) > 2200:
+        raise ValueError("Caption exceeds Instagram's 2,200-character limit")
+    item["caption"] = caption
+
 
 
 def _require_live_access(item, confirm):
@@ -303,9 +314,9 @@ def run(outdir="output/v14/image_posts", *, platform="all", story_url=None,
                            "story_url": i["story_url"],
                            "image_file": i["image_file"],
                            "approval": "not_verified_in_dry_run"} for i in items]}
-    # Preflight EVERY platform before publishing ANY of them.
+    # Automated preflight EVERY platform before publishing ANY of them.
     for item in items:
-        _require_approved(item)
+        _automated_content_check(item)
         _require_live_access(item, confirm)
     connection = _connect_journal(journal)
     results = []
@@ -341,11 +352,11 @@ def run(outdir="output/v14/image_posts", *, platform="all", story_url=None,
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="V14 reviewed FB/IG/X image posting; dry-run by default")
+    parser = argparse.ArgumentParser(description="V14 automated FB/IG/X image posting; dry-run by default")
     parser.add_argument("--outdir", default="output/v14/image_posts")
     parser.add_argument("--platform", choices=(*PLATFORMS, "all"), default="all")
     parser.add_argument("--story-url")
-    parser.add_argument("--live", action="store_true", help="Real API publishing; approvals and credentials required")
+    parser.add_argument("--live", action="store_true", help="Real API publishing; live account settings and credentials required")
     parser.add_argument("--confirm", default=None, help="Must be PUBLISH_REVIEWED_POSTS for live")
     args = parser.parse_args(argv)
     try:

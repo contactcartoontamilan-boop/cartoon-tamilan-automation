@@ -199,11 +199,15 @@ def publish_x_image(path, caption, *, session=None, auth=None, sleeper=time.slee
         raise RuntimeError("X did not return a media ID")
     with file.open("rb") as stream:
         for index, chunk in enumerate(iter(lambda: stream.read(4 * 1024 * 1024), b"")):
-            _x_json(http.post(
+            appended = http.post(
                 X_API + "/media/upload/" + media_id + "/append",
                 data={"segment_index": index},
                 files={"media": ("post.jpg", chunk, "image/jpeg")},
-                auth=oauth, timeout=60))
+                auth=oauth, timeout=60)
+            # Successful append responses may be HTTP 204 with an empty body.
+            if not 200 <= appended.status_code < 300:
+                raise RuntimeError("X image chunk upload failed: HTTP " +
+                                   str(appended.status_code))
     final = _x_json(http.post(
         X_API + "/media/upload/" + media_id + "/finalize",
         auth=oauth, timeout=40))

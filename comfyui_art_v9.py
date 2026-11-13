@@ -65,10 +65,10 @@ def load_workflow(workflow_path, prompt, checkpoint=None, seed=None):
         workflow[sampler]["inputs"]["seed"] = int(seed)
     return workflow
 
-def generate(prompt, destination, workflow_path=None, timeout=600, session=None):
+def generate(prompt, destination, workflow_path=None, timeout=600, session=None, *, seed=None):
     workflow_path = workflow_path or os.getenv("COMFYUI_WORKFLOW", "workflows/story_txt2img_api.json")
     checkpoint = os.getenv("COMFYUI_CHECKPOINT") or None
-    seed = int(os.getenv("COMFYUI_SEED", "20261112"))
+    seed = int(seed if seed is not None else os.getenv("COMFYUI_SEED", "20261112"))
     workflow = load_workflow(workflow_path, prompt, checkpoint=checkpoint, seed=seed)
     http = session or requests
     root = base_url()

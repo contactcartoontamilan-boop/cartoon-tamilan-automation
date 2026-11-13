@@ -1,0 +1,33 @@
+name: CartoonTamilan V14 image post preview tests
+
+on:
+  push:
+    branches: [feature/v14-image-post-preview]
+    paths:
+      - 'ct_v14_image_post.py'
+      - 'test_ct_v14_image_post.py'
+      - '.github/workflows/v14-image-post-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Tamil fonts and media support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-core libraqm0 ffmpeg
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check Python syntax
+        run: python -m compileall -q ct_v14_image_post.py test_ct_v14_image_post.py
+      - name: Run offline V14 image and story video tests
+        run: python -m unittest test_ct_v14_image_post.py test_ct_v14.py -v

@@ -46,7 +46,8 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_posts",
-                        *, runner=None) -> dict:
+                        *, runner=None, art_mode: str = "cover",
+                        art_style: str = "anime") -> dict:
     """Save verified, unapproved post drafts; do not post or email anything.
 
     Uses the existing V13 safe draft renderer instead of duplicating it.
@@ -54,12 +55,21 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
     """
     if not 1 <= limit <= 6:
         raise ValueError("Choose between 1 and 6 stories")
+    if art_mode not in ("cover", "comfyui"):
+        raise ValueError("Choose art_mode cover or comfyui")
+    if art_style not in ("anime", "cinematic_3d", "realistic_cinematic"):
+        raise ValueError("Choose anime, cinematic_3d, or realistic_cinematic art style")
     root = Path(outdir).resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    report = (runner or run)(
-        limit=limit, outdir=str(root), art_mode="cover",
-        make_video=False, voice=False, audit=False, chapters=False)
+    run_args = {
+        "limit": limit, "outdir": str(root), "art_mode": art_mode,
+        "make_video": False, "voice": False, "audit": False, "chapters": False,
+    }
+    # Preserve compatibility with existing preview runners using the default style.
+    if art_style != "anime":
+        run_args["art_style"] = art_style
+    report = (runner or run)(**run_args)
     posts = []
     story_manifests = []
 
@@ -114,6 +124,8 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         "workflow": "website_to_image_post_preview",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "source_pipeline": "v13_safe_preview_renderer",
+        "art_mode": art_mode,
+        "art_style": art_style,
         "status": "draft_ready_review_required" if posts else "no_drafts_created",
         "stories_prepared": len(story_manifests),
         "post_drafts_created": len(posts),
@@ -126,7 +138,8 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         "live_publishing": False,
         "email_sent": False,
         "notes": [
-            "Uses website story covers, not newly generated anime illustrations.",
+            ("Uses website story covers; not AI-generated art." if art_mode == "cover"
+             else "Uses configured ComfyUI with a verified story bible; review generated artwork."),
             "Check cover license, story match, Tamil typography and any baked-in text.",
             "No post is uploaded or scheduled; approvals and API permissions are separate.",
         ],
@@ -141,6 +154,10 @@ def main(argv=None) -> int:
     parser.add_argument("command", nargs="?", choices=("create", "status"), default="create")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--outdir", default="output/v14/image_posts")
+    parser.add_argument("--art-mode", choices=("cover", "comfyui"), default="cover",
+                        help="Use the existing cover or a configured ComfyUI model")
+    parser.add_argument("--style", choices=("anime", "cinematic_3d", "realistic_cinematic"),
+                        default="anime", help="Generated-art style; requires --art-mode comfyui")
     args = parser.parse_args(argv)
     if args.command == "status":
         path = Path(args.outdir) / "image_post_preview.json"
@@ -149,11 +166,14 @@ def main(argv=None) -> int:
             return 1
         result = json.loads(path.read_text(encoding="utf-8"))
     else:
-        result = prepare_image_posts(args.limit, args.outdir)
+        result = prepare_image_posts(args.limit, args.outdir,
+                                      art_mode=args.art_mode, art_style=args.style)
     print(json.dumps({
         "status": result["status"],
         "stories_prepared": result.get("stories_prepared", 0),
         "post_drafts_created": result.get("post_drafts_created", 0),
+        "art_mode": result.get("art_mode", "cover"),
+        "art_style": result.get("art_style", "anime"),
         "preview_file": str(Path(args.outdir) / "image_post_preview.json"),
         "failures": result.get("failures", []),
         "published": False,

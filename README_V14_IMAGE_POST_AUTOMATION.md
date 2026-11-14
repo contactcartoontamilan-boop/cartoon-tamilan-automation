@@ -81,6 +81,18 @@ The existing V13 renderer also saves an email **draft**, but does not send it.
   image or successful post.
 - Cover mode uses the website's existing artwork; it is **not AI-generated
   character art**. Hosting artwork does not prove rights for promotion.
+- Optional original AI artwork uses a configured ComfyUI installation and an
+  approved, verified story bible. It remains a review-only preview; generated
+  art is not automatically posted. Oracle A1 CPU may render slowly and does
+  not guarantee premium photorealistic results.
+- To request the new realistic cinematic art style, configure ComfyUI with a
+  licensed model/workflow on the same server, verify the story's character
+  notes in `data/story_bibles_v10.json`, then run:
+  ```bash
+  .venv/bin/python ct_v14_image_post.py create --limit 1 --art-mode comfyui --style realistic_cinematic
+  ```
+  Without that backend and verified story notes, generation stops safely;
+  use the default cover mode for a normal preview.
 - The image renderer needs working Pillow RAQM and Tamil fonts.
 - Source covers may already contain printed text or watermarks, which require
   human visual review.

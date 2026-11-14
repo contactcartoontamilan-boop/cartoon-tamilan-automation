@@ -12,8 +12,8 @@ def get_art(story_url, raw_cover=None, backend="cover", style="anime", output=No
     For ComfyUI, an installed real model/workflow + reachable local endpoint is
     required; the returned 3D *style* is a still illustration, not a 3D mesh.
     """
-    if style not in ("anime", "cinematic_3d"):
-        raise ValueError("Style must be anime or cinematic_3d")
+    if style not in ("anime", "cinematic_3d", "realistic_cinematic"):
+        raise ValueError("Style must be anime, cinematic_3d, or realistic_cinematic")
     bibles = read_json(BIBLES, {})
     bible = bibles.get(story_url, {})
     verified = validate_bible(bible)

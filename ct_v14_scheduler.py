@@ -11,6 +11,8 @@ import argparse
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import time
 from datetime import datetime, time as wall_time, timedelta, timezone
 from pathlib import Path
@@ -64,6 +66,73 @@ def _next_daily_slot(after: datetime) -> datetime:
     if candidate <= local:
         candidate += timedelta(days=1)
     return candidate
+
+
+
+def refresh_daily_queue(outdir: str) -> dict:
+    """Discover a fresh owned-site story and prepare its FB/IG queue once daily.
+
+    Failures are retried after one hour. A successful generation is not repeated
+    that IST day, preventing the renderer from replacing a queue while jobs run.
+    """
+    if os.getenv("CT_V14_AUTO_SCHEDULE_QUEUE", "").lower() != "true":
+        return {"enabled": False, "status": "disabled"}
+
+    marker = Path("data/v14_daily_queue_refresh.json")
+    now = datetime.now(IST)
+    state = {}
+    if marker.is_file():
+        try:
+            state = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            state = {}
+    if state.get("success_date_ist") == now.date().isoformat():
+        return {"enabled": True, "status": "already_refreshed_today"}
+    attempted = state.get("attempted_at")
+    if attempted:
+        try:
+            previous = datetime.fromisoformat(attempted)
+            if previous.tzinfo is not None and now - previous < timedelta(hours=1):
+                return {"enabled": True, "status": "retry_wait"}
+        except ValueError:
+            pass
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    state["attempted_at"] = now.isoformat()
+    temp = marker.with_suffix(marker.suffix + ".tmp")
+    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\\n",
+                    encoding="utf-8")
+    temp.replace(marker)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "ct_v14_social_queue.py", "create-and-prepare",
+             "--limit", "1", "--outdir", outdir],
+            check=False, capture_output=True, text=True, timeout=900,
+        )
+        summary = {}
+        for line in reversed(completed.stdout.splitlines()):
+            try:
+                summary = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+        if completed.returncode != 0:
+            return {"enabled": True, "status": "generation_failed",
+                    "exit_code": completed.returncode,
+                    "error_type": "QueueGenerationError"}
+        state["success_date_ist"] = now.date().isoformat()
+        state["last_result"] = {
+            key: summary.get(key) for key in
+            ("generated_image_formats", "image_post_queue_count", "published")
+            if key in summary
+        }
+        temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\\n",
+                        encoding="utf-8")
+        temp.replace(marker)
+        return {"enabled": True, "status": "refreshed", **state["last_result"]}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"enabled": True, "status": "generation_failed",
+                "error_type": type(exc).__name__}
 
 
 def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
@@ -156,10 +225,11 @@ def init_state(path: Path = STATE) -> sqlite3.Connection:
 
 def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 state_path: Path = STATE) -> dict:
+    daily_queue = refresh_daily_queue(outdir)
     sync = sync_queue(outdir, schedule_path)
     if not schedule_path.exists():
         return {"checked_at": datetime.now(timezone.utc).isoformat(),
-                "auto_schedule": sync, "results": [],
+                "daily_queue": daily_queue, "auto_schedule": sync, "results": [],
                 "live_enabled_only_by_explicit_env_gates": True}
     jobs = read_jobs(schedule_path)
     now = datetime.now(timezone.utc)
@@ -198,7 +268,8 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
             results.append({"id": job["id"], "status": status})
     finally:
         db.close()
-    return {"checked_at": now.isoformat(), "auto_schedule": sync, "results": results,
+    return {"checked_at": now.isoformat(), "daily_queue": daily_queue,
+            "auto_schedule": sync, "results": results,
             "live_enabled_only_by_explicit_env_gates": True}
 
 

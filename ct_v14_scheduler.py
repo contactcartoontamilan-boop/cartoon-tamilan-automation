@@ -100,7 +100,7 @@ def refresh_daily_queue(outdir: str) -> dict:
     marker.parent.mkdir(parents=True, exist_ok=True)
     state["attempted_at"] = now.isoformat()
     temp = marker.with_suffix(marker.suffix + ".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\\n",
+    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8")
     temp.replace(marker)
     try:
@@ -126,7 +126,7 @@ def refresh_daily_queue(outdir: str) -> dict:
             ("generated_image_formats", "image_post_queue_count", "published")
             if key in summary
         }
-        temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\\n",
+        temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8")
         temp.replace(marker)
         return {"enabled": True, "status": "refreshed", **state["last_result"]}

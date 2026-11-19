@@ -107,12 +107,15 @@ def refresh_hourly_queue(outdir: str) -> dict:
             check=False, capture_output=True, text=True, timeout=900,
         )
         summary = {}
-        for line in reversed(completed.stdout.splitlines()):
-            try:
-                summary = json.loads(line)
-                break
-            except json.JSONDecodeError:
-                continue
+        try:
+            summary = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            for line in reversed(completed.stdout.splitlines()):
+                try:
+                    summary = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
         if completed.returncode != 0:
             return {"enabled": True, "status": "generation_failed",
                     "exit_code": completed.returncode,
@@ -120,7 +123,8 @@ def refresh_hourly_queue(outdir: str) -> dict:
         state["success_at"] = now.isoformat()
         state["last_result"] = {
             key: summary.get(key) for key in
-            ("generated_image_formats", "image_post_queue_count", "published")
+            ("generated_image_formats", "image_post_queue_count",
+             "multimedia_generation", "generated_media_count", "published")
             if key in summary
         }
         temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",

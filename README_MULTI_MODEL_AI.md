@@ -86,10 +86,26 @@ Use `--provider openai` or `gemini` for image/voice options; voice supports
 into a longer montage, but does not create continuous character animation.
 Azure voice uses the project's existing Tamil female neural voice adapter.
 
-Python callers can use `generate_image`, `generate_video`, and
-`generate_voice` from `ct_multimedia.py`. These adapters are not yet invoked
-automatically by the hourly social queue; connect them to an approved story
-pipeline and review the generated script/art before turning on publication.
+## Hourly story media queue
+
+The hourly Oracle worker can create media for its next owned CartoonTamilan
+story. Set both `ENABLE_AI_MEDIA_API=true` and
+`CT_V14_HOURLY_MEDIA_ENABLED=true` in Oracle's private `.env`, then set the
+provider keys and model names above. Defaults are disabled. Each hourly refresh
+uses one image generation, one short video generation and one Tamil CTA voice
+generation; the image provider defaults to Gemini, video to xAI, and voice to
+the existing Azure Tamil voice. The resulting image is formatted into the
+platform image drafts and enters the existing Facebook/Instagram image queue.
+A short teaser and voice are recorded in `social_queue.json` as review-ready
+Reel/Short assets. The current publisher does not publish video/Reels; those
+remain unpublished assets. The hourly worker does not generate a full story
+plot from its title and does not publish media beyond the existing image
+publisher path. AI-provider requests may incur charges and use provider quota.
+
+Set `CT_V14_QUEUE_IMAGE_PROVIDER`, `CT_V14_QUEUE_VIDEO_PROVIDER`,
+`CT_V14_QUEUE_VOICE_PROVIDER` and `CT_V14_QUEUE_VIDEO_SECONDS` to tune
+providers and clip duration. Azure voice also requires `AZURE_SPEECH_KEY`
+and `AZURE_SPEECH_REGION`.
 
 ## Provider docs
 

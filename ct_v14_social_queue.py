@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """V14 multi-platform image inventory + review-only posting queue.
 
-A planned time is NOT a background scheduler or a publication authorization.
-This module never makes API requests, publishes, emails, or uploads content.
+A planned time is NOT publication authorization. The prepare command is local-only;
+create-and-prepare may generate remote media only behind explicit environment gates.
+This module never publishes or uploads content.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -175,13 +177,24 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
                 start + timedelta(minutes=interval_minutes * number)).isoformat()
 
     videos = []
+    generated_by_story = {
+        item.get("story_url"): item for item in source.get("generated_media", [])
+        if isinstance(item, dict) and item.get("story_url")
+    }
     for url, variants in inventory.items():
+        media = generated_by_story.get(url, {})
         for platform, cover_variant in VIDEO_PLATFORMS:
             cover = variants.get(cover_variant)
+            video_file = media.get("video_with_voice_file") or media.get("video_file")
             videos.append({
                 "platform": platform, "story_url": url,
                 "cover_image_file": cover["file"] if cover else None,
-                "status": "mp4_video_required",
+                "video_file": video_file,
+                "voice_file": media.get("voice_file"),
+                "video_sha256": media.get("video_with_voice_sha256")
+                    or media.get("video_sha256"),
+                "status": "draft_video_ready_review" if video_file
+                    else "mp4_video_required",
                 "published": False,
             })
 
@@ -198,12 +211,19 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
         "image_post_queue": queue,
         "thumbnail_exports": exports,
         "reel_short_requirements": videos,
+        "generated_media": source.get("generated_media", []),
+        "multimedia_generation": source.get("multimedia_generation",
+                                            {"status": "not_requested", "generated": []}),
         "published": False,
         "live_publishing": False,
         "background_scheduler_running": False,
         "requires_human_review": True,
         "notes": [
-            ("Generated with configured ComfyUI; inspect and review the artwork." if source.get("art_mode") == "comfyui" else "Using existing website-cover designs as fallback artwork."),
+            ("Generated with configured ComfyUI; inspect and review the artwork."
+             if source.get("art_mode") == "comfyui" else
+             "Generated with an opted-in AI image provider; inspect and review the artwork."
+             if source.get("art_mode") == "ai_provider" else
+             "Using existing website-cover designs as fallback artwork."),
             "planned_time_for_review is only a suggested review slot, not an auto-post.",
             "Reels and Shorts require an MP4; a JPEG cover is not a publishable video.",
             "YouTube thumbnails require a real video upload, account authorization and review.",
@@ -235,6 +255,9 @@ def main(argv=None) -> int:
         if not first["posts"]:
             print(json.dumps({"status": "no_images_created", "published": False}))
             return 1
+        if os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "").lower() == "true":
+            from ct_v14_hourly_media import prepare_hourly_media
+            prepare_hourly_media(args.outdir)
     if args.command == "status":
         path = Path(args.outdir) / "social_queue.json"
         if not path.is_file():
@@ -249,6 +272,8 @@ def main(argv=None) -> int:
         "image_post_queue_count": result["image_post_queue_count"],
         "thumbnail_only_count": result["thumbnail_only_count"],
         "video_workflows_waiting_for_mp4": result["video_workflows_waiting_for_mp4"],
+        "multimedia_generation": result.get("multimedia_generation"),
+        "generated_media_count": len(result.get("generated_media", [])),
         "queue_file": str(Path(args.outdir) / "social_queue.json"),
         "published": False, "background_scheduler_running": False,
     }, ensure_ascii=False, indent=2))

@@ -35,6 +35,11 @@ claims beyond the source data.
    ```
 
 The worker discovers and prepares the next queue at most once per hour, then
-records each publish attempt in SQLite. An uncertain Meta result is not
-retried automatically to prevent duplicate posts. Reels and Stories require
-video assets and a separate publishing workflow. GitHub Actions does not post.
+records each publish attempt in SQLite. Optional image/video/voice generation
+runs during that hourly refresh only when both `ENABLE_AI_MEDIA_API=true` and
+`CT_V14_HOURLY_MEDIA_ENABLED=true` are set in Oracle's private `.env`.
+Generated image variants enter the existing image drafts and may publish only
+if the existing explicit Meta publishing gates and credentials are configured.
+Generated MP4/voice assets are included in the queue for review; this branch
+does not publish Reels or Shorts. An uncertain Meta result is not retried
+automatically to prevent duplicate posts. GitHub Actions does not post.

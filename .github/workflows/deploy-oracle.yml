@@ -21,8 +21,13 @@ jobs:
           set -euo pipefail
           test -n "$ORACLE_SSH_KEY"
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle_key
+          if printf '%s' "$ORACLE_SSH_KEY" | grep -q -- '-----BEGIN .*PRIVATE KEY-----'; then
+            printf '%s\n' "$ORACLE_SSH_KEY" | tr -d '\r' > ~/.ssh/oracle_key
+          else
+            printf '%s' "$ORACLE_SSH_KEY" | base64 --decode > ~/.ssh/oracle_key
+          fi
           chmod 600 ~/.ssh/oracle_key
+          ssh-keygen -y -f ~/.ssh/oracle_key >/dev/null
           ssh-keyscan -H "80.225.239.193" >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/oracle_key -o BatchMode=yes ubuntu@"80.225.239.193" 'set -eu
             cd /home/ubuntu/cartoon-tamilan-v14-social-test

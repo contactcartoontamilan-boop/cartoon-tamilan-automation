@@ -16,14 +16,15 @@ def normalize_script(text: str) -> str:
     """Preserve Tamil graphemes; normalize whitespace, not spelling or meaning."""
     if not isinstance(text, str):
         raise TypeError("Story script must be UTF-8 text")
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+    return re.sub(r"\\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
 def plan_story(script: str, scene_count: int = 8) -> dict:
-    """Split ONLY the provided, editorially approved narration into scenes.
+    """Build detailed, source-grounded scene notes from reviewed narration.
 
-    This is not an AI plot writer. For story-specific shots, supply separate
-    original/approved illustrations in scene_01..scene_N order.
+    Plot outline entries are verbatim excerpts in source order, not generated
+    summaries. Visual descriptions use only the same passage; they do not add
+    new events, characters, or facts.
     """
     text = normalize_script(script)
     words = text.split()
@@ -44,8 +45,16 @@ def plan_story(script: str, scene_count: int = 8) -> dict:
         scenes.append({
             "scene": index + 1,
             "narration": line,
+            "plot_excerpt": line,
+            "detailed_description": (
+                "Source-grounded scene description; depict only details stated "
+                "in this passage: " + line
+            ),
             "words": last - first,
-            "visual": "Needs original approved illustration matching this passage",
+            "visual": (
+                "Create an original cinematic composition from this passage; "
+                "do not add plot details or characters"
+            ),
         })
     return {
         "version": 14,
@@ -53,6 +62,11 @@ def plan_story(script: str, scene_count: int = 8) -> dict:
         "scene_count": scene_count,
         "word_count": len(words),
         "source_faithful": True,
+        "plot_outline_type": "verbatim_scene_excerpts_in_source_order",
+        "plot_outline": [
+            {"scene": scene["scene"], "excerpt": scene["plot_excerpt"]}
+            for scene in scenes
+        ],
         "editorial_review_required": True,
         "scenes": scenes,
     }
@@ -90,6 +104,6 @@ def validate_scene_images(folder: str | Path, scene_count: int) -> list[Path]:
 def save_plan(plan: dict, destination: str | Path) -> Path:
     out = Path(destination)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n",
+    out.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\\n",
                    encoding="utf-8")
     return out

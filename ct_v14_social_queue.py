@@ -245,14 +245,39 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=1,
                         help="Used only by create-and-prepare")
     parser.add_argument("--outdir", default="output/v14/image_posts")
+    parser.add_argument("--exclude-scheduled-from", default="data/v14_scheduled_posts.json",
+                        help="Schedule file whose story URLs must not be prepared again")
     parser.add_argument("--start-at", default=None,
                         help="Optional timezone-aware review plan; NOT live scheduling")
     parser.add_argument("--interval-minutes", type=int, default=30)
     args = parser.parse_args(argv)
     if args.command == "create-and-prepare":
         from ct_v14_image_post import prepare_image_posts
-        first = prepare_image_posts(args.limit, args.outdir)
+        schedule_file = Path(args.exclude_scheduled_from)
+        excluded_urls = set()
+        if schedule_file.is_file():
+            schedule_data = _read_json(schedule_file)
+            scheduled_jobs = schedule_data.get("jobs")
+            if (schedule_data.get("published") is not False
+                    or not isinstance(scheduled_jobs, list)):
+                raise ValueError("Existing schedule is invalid; refusing to repeat old posts")
+            excluded_urls = {
+                str(job["story_url"]).rstrip("/")
+                for job in scheduled_jobs
+                if isinstance(job, dict) and isinstance(job.get("story_url"), str)
+            }
+        first = prepare_image_posts(args.limit, args.outdir,
+                                    exclude_story_urls=excluded_urls)
         if not first["posts"]:
+            if first.get("status") == "no_unposted_stories":
+                print(json.dumps({
+                    "status": "no_unposted_stories",
+                    "skipped_already_scheduled": first.get("skipped_already_scheduled", 0),
+                    "generated_image_formats": 0,
+                    "image_post_queue_count": 0,
+                    "published": False,
+                }))
+                return 0
             print(json.dumps({"status": "no_images_created", "published": False}))
             return 1
         if os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "").lower() == "true":

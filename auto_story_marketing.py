@@ -97,11 +97,29 @@ def discover(base=BASE, limit=20, session=None):
     if not same_domain(base):
         raise ValueError("Website must be CartoonTamilan HTTPS")
     http = session or requests
-    response = http.get(base, timeout=25, headers=HEADERS, allow_redirects=False)
-    response.raise_for_status()
-    if 300 <= response.status_code < 400:
-        raise RuntimeError("Homepage redirected; cannot safely discover novels")
-    return discover_from_html(response.text, base, limit)
+    pages = [base]
+    if urlparse(base).hostname in ("cartoontamilan.in", "www.cartoontamilan.in"):
+        archive = urljoin(base, "/novel/")
+        if archive.rstrip("/") != base.rstrip("/"):
+            pages.append(archive)
+
+    stories = {}
+    for page_url in pages:
+        try:
+            response = http.get(page_url, timeout=25, headers=HEADERS,
+                                allow_redirects=False)
+            response.raise_for_status()
+        except requests.RequestException:
+            if page_url == base:
+                raise
+            continue
+        if 300 <= response.status_code < 400:
+            if page_url == base:
+                raise RuntimeError("Homepage redirected; cannot safely discover novels")
+            continue
+        for item in discover_from_html(response.text, page_url, limit):
+            stories.setdefault(item["link"], item)
+    return list(stories.values())[:limit]
 
 
 def build(outdir="output/story_discovery", limit=10, base=BASE, session=None, cover_fetcher=None, poster_maker=None):

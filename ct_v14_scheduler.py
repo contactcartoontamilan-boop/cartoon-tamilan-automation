@@ -66,7 +66,7 @@ def _next_hourly_slot(after: datetime) -> datetime:
 
 
 
-def refresh_hourly_queue(outdir: str) -> dict:
+def refresh_hourly_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
     """Discover a fresh owned-site story and prepare its FB/IG queue at most once per hour.
 
     Failures are retried after one hour. A successful generation is not repeated
@@ -103,7 +103,8 @@ def refresh_hourly_queue(outdir: str) -> dict:
     try:
         completed = subprocess.run(
             [sys.executable, "ct_v14_social_queue.py", "create-and-prepare",
-             "--limit", "1", "--outdir", outdir],
+             "--limit", "1", "--outdir", outdir,
+             "--exclude-scheduled-from", str(schedule_path)],
             check=False, capture_output=True, text=True, timeout=900,
         )
         summary = {}
@@ -123,7 +124,8 @@ def refresh_hourly_queue(outdir: str) -> dict:
         state["success_at"] = now.isoformat()
         state["last_result"] = {
             key: summary.get(key) for key in
-            ("generated_image_formats", "image_post_queue_count",
+            ("status", "skipped_already_scheduled",
+             "generated_image_formats", "image_post_queue_count",
              "multimedia_generation", "generated_media_count", "published")
             if key in summary
         }
@@ -226,7 +228,7 @@ def init_state(path: Path = STATE) -> sqlite3.Connection:
 
 def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 state_path: Path = STATE) -> dict:
-    daily_queue = refresh_hourly_queue(outdir)
+    daily_queue = refresh_hourly_queue(outdir, schedule_path)
     sync = sync_queue(outdir, schedule_path)
     if not schedule_path.exists():
         return {"checked_at": datetime.now(timezone.utc).isoformat(),

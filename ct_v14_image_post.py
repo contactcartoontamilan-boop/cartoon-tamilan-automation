@@ -47,7 +47,8 @@ def _write_json(path: Path, data: dict) -> None:
 
 def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_posts",
                         *, runner=None, art_mode: str = "auto",
-                        art_style: str = "realistic_cinematic") -> dict:
+                        art_style: str = "realistic_cinematic",
+                        exclude_story_urls=None) -> dict:
     """Prepare unpublished drafts; auto mode prefers realistic AI art safely."""
     if not 1 <= limit <= 6:
         raise ValueError("Choose between 1 and 6 stories")
@@ -78,6 +79,7 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         # pipeline receives the selected art style.
         if runner is None:
             run_args["art_style"] = art_style
+            run_args["exclude_story_urls"] = exclude_story_urls
         return (runner or run)(**run_args)
 
     report = invoke(effective_mode)
@@ -144,7 +146,10 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         "art_mode": effective_mode,
         "art_style": art_style,
         "art_fallback_reason": fallback_reason,
-        "status": "draft_ready_review_required" if posts else "no_drafts_created",
+        "skipped_already_scheduled": report.get("skipped_already_scheduled", 0),
+        "status": ("draft_ready_review_required" if posts else
+                   "no_unposted_stories" if report.get("status") == "no_unposted_stories"
+                   else "no_drafts_created"),
         "stories_prepared": len(story_manifests),
         "post_drafts_created": len(posts),
         "story_manifests": story_manifests,

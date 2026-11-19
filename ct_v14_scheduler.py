@@ -2,7 +2,7 @@
 """Oracle cron worker for automatically scheduled V14 Instagram/Facebook drafts.
 
 When CT_V14_AUTO_SCHEDULE_QUEUE=true, discovers unpublished stories in the
-queue and adds Instagram + Facebook jobs on daily Asia/Kolkata slots. The
+queue and adds Instagram + Facebook jobs on hourly Asia/Kolkata slots. The
 publisher runs automated content and media checks before publishing.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from datetime import datetime, time as wall_time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -60,25 +60,22 @@ def read_jobs(path: Path = SCHEDULE) -> list[dict]:
     return jobs
 
 
-def _next_daily_slot(after: datetime) -> datetime:
+def _next_hourly_slot(after: datetime) -> datetime:
     local = after.astimezone(IST)
-    candidate = datetime.combine(local.date(), wall_time(hour=9), tzinfo=IST)
-    if candidate <= local:
-        candidate += timedelta(days=1)
-    return candidate
+    return local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 
-def refresh_daily_queue(outdir: str) -> dict:
-    """Discover a fresh owned-site story and prepare its FB/IG queue once daily.
+def refresh_hourly_queue(outdir: str) -> dict:
+    """Discover a fresh owned-site story and prepare its FB/IG queue at most once per hour.
 
     Failures are retried after one hour. A successful generation is not repeated
-    that IST day, preventing the renderer from replacing a queue while jobs run.
+    that hour, preventing repeated generation during the same hourly slot.
     """
     if os.getenv("CT_V14_AUTO_SCHEDULE_QUEUE", "").lower() != "true":
         return {"enabled": False, "status": "disabled"}
 
-    marker = Path("data/v14_daily_queue_refresh.json")
+    marker = Path("data/v14_hourly_queue_refresh.json")
     now = datetime.now(IST)
     state = {}
     if marker.is_file():
@@ -86,16 +83,16 @@ def refresh_daily_queue(outdir: str) -> dict:
             state = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             state = {}
-    if state.get("success_date_ist") == now.date().isoformat():
-        return {"enabled": True, "status": "already_refreshed_today"}
-    attempted = state.get("attempted_at")
-    if attempted:
-        try:
-            previous = datetime.fromisoformat(attempted)
-            if previous.tzinfo is not None and now - previous < timedelta(hours=1):
-                return {"enabled": True, "status": "retry_wait"}
-        except ValueError:
-            pass
+    for field in ("success_at", "attempted_at"):
+        timestamp = state.get(field)
+        if timestamp:
+            try:
+                previous = datetime.fromisoformat(timestamp)
+                if previous.tzinfo is not None and now - previous < timedelta(hours=1):
+                    status = "already_refreshed_this_hour" if field == "success_at" else "retry_wait"
+                    return {"enabled": True, "status": status}
+            except ValueError:
+                pass
 
     marker.parent.mkdir(parents=True, exist_ok=True)
     state["attempted_at"] = now.isoformat()
@@ -120,7 +117,7 @@ def refresh_daily_queue(outdir: str) -> dict:
             return {"enabled": True, "status": "generation_failed",
                     "exit_code": completed.returncode,
                     "error_type": "QueueGenerationError"}
-        state["success_date_ist"] = now.date().isoformat()
+        state["success_at"] = now.isoformat()
         state["last_result"] = {
             key: summary.get(key) for key in
             ("generated_image_formats", "image_post_queue_count", "published")
@@ -170,7 +167,7 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
     if last_slot is None:
         slot = datetime.now(IST) + timedelta(minutes=1)
     else:
-        slot = _next_daily_slot(last_slot)
+        slot = _next_hourly_slot(max(last_slot, datetime.now(IST)))
     added = 0
     for story_url in grouped:
         if not ALLOWED.issubset(grouped[story_url]):
@@ -201,7 +198,7 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
             jobs.extend(new_jobs)
             existing.update(job["id"] for job in new_jobs)
             added += len(new_jobs)
-            slot += timedelta(days=1)
+            slot += timedelta(hours=1)
 
     payload["jobs"] = jobs
     schedule_path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +222,7 @@ def init_state(path: Path = STATE) -> sqlite3.Connection:
 
 def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 state_path: Path = STATE) -> dict:
-    daily_queue = refresh_daily_queue(outdir)
+    daily_queue = refresh_hourly_queue(outdir)
     sync = sync_queue(outdir, schedule_path)
     if not schedule_path.exists():
         return {"checked_at": datetime.now(timezone.utc).isoformat(),

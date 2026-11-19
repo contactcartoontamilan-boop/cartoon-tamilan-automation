@@ -72,9 +72,12 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
     def invoke(mode):
         run_args = {
             "limit": limit, "outdir": str(root), "art_mode": mode,
-            "art_style": art_style,
             "make_video": False, "voice": False, "audit": False, "chapters": False,
         }
+        # Keep compatibility with injected preview runners; only production
+        # pipeline receives the selected art style.
+        if runner is None:
+            run_args["art_style"] = art_style
         return (runner or run)(**run_args)
 
     report = invoke(effective_mode)

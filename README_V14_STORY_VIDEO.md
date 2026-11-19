@@ -136,3 +136,12 @@ Use the isolated test worktree; leave the production main checkout alone.
 This branch does not alter existing timers or .env. Do not run git pull
 --ff-only in the production checkout to try to install V14. Keep generated outputs and
 private narration/artwork out of GitHub.
+
+
+## New provider adapters (separate from the story-video pipeline)
+
+`ct_multimedia.py` now includes opt-in APIs for xAI/OpenAI/Gemini images,
+xAI short video, and OpenAI/Gemini/xAI voice generation. Existing Azure Tamil
+female TTS remains available. These adapters do not yet feed the hourly queue
+automatically; human review and the publisher's independent configuration are
+still required. See `README_MULTI_MODEL_AI.md`.

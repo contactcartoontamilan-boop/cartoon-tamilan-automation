@@ -5,7 +5,8 @@ Instagram and Facebook. It uses each queue draft's image and caption, adds the
 story title if missing, and appends #CartoonTamilan, #TamilStories and
 #TamilNovels when absent. The first eligible story is scheduled about one
 minute after the worker starts; later stories use daily 09:00 Asia/Kolkata
-slots, one story per day, on both channels.
+slots, at most one fresh story per hour, on both channels. If the site has
+no new eligible story, the worker does not repeat an old post.
 
 No manual content approvals are checked. Automated preflight still verifies
 that the story belongs to CartoonTamilan, the draft is unpublished, image
@@ -33,6 +34,7 @@ claims beyond the source data.
    * * * * * cd /home/ubuntu/cartoon-tamilan-v14-social-test && set -a && . ./.env && set +a && .venv/bin/python ct_v14_scheduler.py --poll-seconds 0 >> logs/v14_scheduler.log 2>&1
    ```
 
-The worker records each attempt in SQLite. An uncertain Meta result is not
+The worker discovers and prepares the next queue at most once per hour, then
+records each publish attempt in SQLite. An uncertain Meta result is not
 retried automatically to prevent duplicate posts. Reels and Stories require
 video assets and a separate publishing workflow. GitHub Actions does not post.

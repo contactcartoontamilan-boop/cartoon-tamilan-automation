@@ -16,7 +16,7 @@ def normalize_script(text: str) -> str:
     """Preserve Tamil graphemes; normalize whitespace, not spelling or meaning."""
     if not isinstance(text, str):
         raise TypeError("Story script must be UTF-8 text")
-    return re.sub(r"\\s+", " ", unicodedata.normalize("NFC", text)).strip()
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
 def plan_story(script: str, scene_count: int = 8) -> dict:
@@ -104,6 +104,6 @@ def validate_scene_images(folder: str | Path, scene_count: int) -> list[Path]:
 def save_plan(plan: dict, destination: str | Path) -> Path:
     out = Path(destination)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\\n",
+    out.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n",
                    encoding="utf-8")
     return out

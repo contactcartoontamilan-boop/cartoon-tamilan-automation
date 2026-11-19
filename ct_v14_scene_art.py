@@ -96,7 +96,7 @@ def prepare_scene_art(storyboard: dict, *, story_url: str, title: str,
             raise ValueError("Save generated story art only in git-ignored output/ or private/")
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "scene_prompts.json").write_text(
-        json.dumps(prompts, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        json.dumps(prompts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if generate and not all((rights_confirmed, story_reviewed, model_license_confirmed)):
         raise PermissionError("Need story review, artwork rights and model-license confirmation")
     generated = []
@@ -129,7 +129,7 @@ def prepare_scene_art(storyboard: dict, *, story_url: str, title: str,
         "live_publishing": False,
     }
     (folder / "scene_art_manifest.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return report
 
 

@@ -24,6 +24,7 @@ IMAGE_POST_PLATFORMS = ("instagram", "facebook", "pinterest", "threads", "x",
                         "linkedin", "telegram")
 VIDEO_PLATFORMS = (
     ("instagram_reels", "instagram_story"),
+    ("instagram_stories", "instagram_story"),
     ("facebook_reels", "instagram_story"),
     ("youtube_shorts", "youtube_short"),
 )

@@ -97,10 +97,12 @@ generation; the image provider defaults to Gemini, video to xAI, and voice to
 the existing Azure Tamil voice. The resulting image is formatted into the
 platform image drafts and enters the existing Facebook/Instagram image queue.
 A short teaser and voice are recorded in `social_queue.json` as review-ready
-Reel/Short assets. The current publisher does not publish video/Reels; those
-remain unpublished assets. The hourly worker does not generate a full story
-plot from its title and does not publish media beyond the existing image
-publisher path. AI-provider requests may incur charges and use provider quota.
+Reel/Short assets. The scheduler can publish ready assets as Instagram Reels
+or Stories, Facebook Reels, and YouTube Shorts when the matching channel gates
+and credentials are configured. These are short clips; long-form YouTube video
+rendering and publishing are not included. The hourly worker uses the existing
+website story and does not invent a new story plot. AI-provider requests may
+incur charges and use provider quota.
 
 Set `CT_V14_QUEUE_IMAGE_PROVIDER`, `CT_V14_QUEUE_VIDEO_PROVIDER`,
 `CT_V14_QUEUE_VOICE_PROVIDER` and `CT_V14_QUEUE_VIDEO_SECONDS` to tune

@@ -8,6 +8,7 @@ publisher runs automated content and media checks before publishing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -23,7 +24,15 @@ from v12_story_reader import owned_story_url
 
 SCHEDULE = Path("data/v14_scheduled_posts.json")
 STATE = Path("data/v14_scheduler.sqlite3")
-ALLOWED = {"instagram", "facebook"}
+ALLOWED = {"instagram", "facebook", "x"}
+REQUIRED_IMAGE_PLATFORMS = {"instagram", "facebook"}
+VIDEO_PLATFORMS = {"instagram_reel", "instagram_story", "facebook_reel", "youtube_short"}
+VIDEO_SOURCE_PLATFORMS = {
+    "instagram_reels": "instagram_reel",
+    "instagram_stories": "instagram_story",
+    "facebook_reels": "facebook_reel",
+    "youtube_shorts": "youtube_short",
+}
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -45,8 +54,8 @@ def read_jobs(path: Path = SCHEDULE) -> list[dict]:
         if not isinstance(job_id, str) or not job_id.strip() or job_id in seen:
             raise ValueError("Each job needs a unique non-empty id")
         seen.add(job_id)
-        if platform not in ALLOWED:
-            raise ValueError("Only Instagram and Facebook are supported")
+        if platform not in ALLOWED | VIDEO_PLATFORMS:
+            raise ValueError("Unsupported scheduled platform")
         if not owned_story_url(story_url):
             raise ValueError("Scheduled story must be an owned CartoonTamilan URL")
         if job.get("published") is not False:
@@ -175,20 +184,25 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
     else:
         slot = _next_hourly_slot(max(last_slot, datetime.now(IST)))
     added = 0
+    story_slots = {}
     for story_url in grouped:
-        if not ALLOWED.issubset(grouped[story_url]):
+        if not REQUIRED_IMAGE_PLATFORMS.issubset(grouped[story_url]):
             continue
+        platforms = ["instagram", "facebook"]
+        if (os.getenv("CT_V14_ENABLE_X", "").lower() == "true"
+                and "x" in grouped[story_url]):
+            platforms.append("x")
         try:
             items = {
                 platform: load_drafts(outdir, platform=platform, story_url=story_url)[0]
-                for platform in ("instagram", "facebook")
+                for platform in platforms
             }
         except (PermissionError, ValueError, FileNotFoundError):
             # Invalid queue items are skipped; there is no manual approval gate.
             continue
 
         new_jobs = []
-        for platform in ("instagram", "facebook"):
+        for platform in platforms:
             draft = items[platform]
             job_id = "v14-" + platform + "-" + draft["id"]
             if job_id not in existing:
@@ -204,7 +218,49 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
             jobs.extend(new_jobs)
             existing.update(job["id"] for job in new_jobs)
             added += len(new_jobs)
+            story_slots[story_url] = new_jobs[0]["scheduled_at"]
             slot += timedelta(hours=1)
+
+    # Add opted-in video formats for the same old website story.
+    for video in queue.get("reel_short_requirements", []):
+        if not isinstance(video, dict) or video.get("published") is not False:
+            continue
+        if video.get("status") != "draft_video_ready_review" or not video.get("video_file"):
+            continue
+        story_url = video.get("story_url")
+        platform = VIDEO_SOURCE_PLATFORMS.get(video.get("platform"))
+        if platform is None or not owned_story_url(story_url):
+            continue
+        enable_flag = {
+            "instagram_reel": "CT_V14_ENABLE_INSTAGRAM_REELS",
+            "instagram_story": "CT_V14_ENABLE_INSTAGRAM_STORIES",
+            "facebook_reel": "CT_V14_ENABLE_FACEBOOK_REELS",
+            "youtube_short": "CT_V14_ENABLE_YOUTUBE_SHORTS",
+        }[platform]
+        if os.getenv(enable_flag, "").lower() != "true":
+            continue
+        digest = str(video.get("video_sha256") or "")
+        if not digest:
+            continue
+        video_job_id = "v14-" + platform + "-" + hashlib.sha256(
+            (story_url + "\n" + digest).encode("utf-8")
+        ).hexdigest()[:24]
+        if video_job_id in existing:
+            continue
+        scheduled_at = story_slots.get(story_url)
+        if not scheduled_at:
+            matching = next((job for job in jobs
+                             if job.get("story_url") == story_url
+                             and job.get("platform") in ALLOWED), None)
+            scheduled_at = matching["scheduled_at"] if matching else slot.isoformat()
+        jobs.append({
+            "id": video_job_id, "platform": platform, "story_url": story_url,
+            "scheduled_at": scheduled_at, "published": False,
+            "video_platform": video.get("platform"),
+            "video_sha256": digest,
+        })
+        existing.add(video_job_id)
+        added += 1
 
     payload["jobs"] = jobs
     schedule_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,9 +286,14 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 state_path: Path = STATE) -> dict:
     daily_queue = refresh_hourly_queue(outdir, schedule_path)
     sync = sync_queue(outdir, schedule_path)
+    try:
+        from ct_v14_operations import refresh_intelligence
+        intelligence = refresh_intelligence()
+    except Exception as exc:
+        intelligence = {"status": "refresh_failed", "error_type": type(exc).__name__}
     if not schedule_path.exists():
         return {"checked_at": datetime.now(timezone.utc).isoformat(),
-                "daily_queue": daily_queue, "auto_schedule": sync, "results": [],
+                "daily_queue": daily_queue, "auto_schedule": sync, "intelligence": intelligence, "results": [],
                 "live_enabled_only_by_explicit_env_gates": True}
     jobs = read_jobs(schedule_path)
     now = datetime.now(timezone.utc)
@@ -248,13 +309,26 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                 results.append({"id": job["id"], "status": row[0]})
                 continue
             try:
-                result = run(outdir, platform=job["platform"],
-                             story_url=job["story_url"], live=True,
-                             confirm=CONFIRMATION)
+                if job["platform"] in VIDEO_PLATFORMS:
+                    from ct_v14_video_publish import run as run_video
+                    result = run_video(
+                        outdir, platform=job["platform"],
+                        story_url=job["story_url"], live=True,
+                        confirm=CONFIRMATION,
+                    )
+                else:
+                    result = run(outdir, platform=job["platform"],
+                                 story_url=job["story_url"], live=True,
+                                 confirm=CONFIRMATION)
                 statuses = [item.get("status") for item in result.get("results", [])]
-                status = ("published" if result.get("status") == "completed"
-                          and statuses and all(s == "published" for s in statuses)
-                          else "needs_reconciliation")
+                if job["platform"] in VIDEO_PLATFORMS:
+                    status = ("published" if result.get("status") == "completed"
+                              and result.get("published") is True
+                              else "needs_reconciliation")
+                else:
+                    status = ("published" if result.get("status") == "completed"
+                              and statuses and all(s == "published" for s in statuses)
+                              else "needs_reconciliation")
                 detail = json.dumps(result, ensure_ascii=False)
             except Exception as exc:
                 # Failed preflights can be retried after configuration is fixed.
@@ -272,12 +346,12 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
     finally:
         db.close()
     return {"checked_at": now.isoformat(), "daily_queue": daily_queue,
-            "auto_schedule": sync, "results": results,
+            "auto_schedule": sync, "intelligence": intelligence, "results": results,
             "live_enabled_only_by_explicit_env_gates": True}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Process automatically scheduled V14 FB/IG jobs")
+    parser = argparse.ArgumentParser(description="Process automatically scheduled V14 social image and video jobs")
     parser.add_argument("--outdir", default="output/v14/image_posts")
     parser.add_argument("--schedule", type=Path, default=SCHEDULE)
     parser.add_argument("--state", type=Path, default=STATE)

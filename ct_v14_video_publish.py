@@ -10,8 +10,9 @@ import hashlib
 import json
 import os
 import sqlite3
+import shutil
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -144,12 +145,38 @@ def _meta_response(response: requests.Response) -> dict:
     return data
 
 
+def _publish_video_media_url(item: dict) -> str:
+    """Copy an MP4 to the configured public host and verify its served type."""
+    media_dir = os.getenv("PUBLIC_MEDIA_DIR", "").strip()
+    media_base = os.getenv("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
+    parsed = urlsplit(media_base)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.query or parsed.fragment or not media_dir):
+        raise ValueError("Configure PUBLIC_MEDIA_DIR and a public HTTPS media base URL")
+    source = Path(item["video_file"])
+    if not source.is_file():
+        raise FileNotFoundError(str(source))
+    digest = item["video_sha256"]
+    name = "ct_" + digest[:24] + ".mp4"
+    destination_dir = Path(media_dir).expanduser()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / name
+    if not destination.exists():
+        shutil.copy2(source, destination)
+    public_url = media_base + "/" + quote(name, safe="")
+    response = requests.head(public_url, timeout=(10, 30), allow_redirects=False)
+    if response.status_code != 200:
+        raise RuntimeError("Public MP4 URL did not return HTTP 200")
+    if not response.headers.get("content-type", "").lower().split(";", 1)[0].strip() == "video/mp4":
+        raise RuntimeError("Public media host must serve MP4 as video/mp4")
+    return public_url
+
+
 def _publish_instagram_video(item: dict, media_type: str) -> dict:
-    from campaign_v9 import publish_media_url
     from social.instagram import (
         create_reel_container, wait_until_container_ready, publish_container,
     )
-    media_url = publish_media_url(item["video_file"])
+    media_url = _publish_video_media_url(item)
     parsed = urlsplit(media_url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("Instagram video must be reachable at a public HTTPS URL")

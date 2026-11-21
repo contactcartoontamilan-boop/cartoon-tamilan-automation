@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from PIL import Image
@@ -48,7 +48,7 @@ def _write_json(path: Path, data: dict) -> None:
 def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_posts",
                         *, runner=None, art_mode: str = "auto",
                         art_style: str = "realistic_cinematic",
-                        exclude_story_urls=None) -> dict:
+                        exclude_story_urls=None, repost_round: int = 0) -> dict:
     """Prepare unpublished drafts; auto mode prefers realistic AI art safely."""
     if not 1 <= limit <= 6:
         raise ValueError("Choose between 1 and 6 stories")
@@ -80,6 +80,7 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         if runner is None:
             run_args["art_style"] = art_style
             run_args["exclude_story_urls"] = exclude_story_urls
+            run_args["repost_round"] = repost_round
         return (runner or run)(**run_args)
 
     report = invoke(effective_mode)

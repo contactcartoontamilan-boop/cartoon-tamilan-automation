@@ -113,7 +113,8 @@ def refresh_hourly_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         completed = subprocess.run(
             [sys.executable, "ct_v14_social_queue.py", "create-and-prepare",
              "--limit", "1", "--outdir", outdir,
-             "--exclude-scheduled-from", str(schedule_path)],
+             "--exclude-scheduled-from", str(schedule_path),
+             "--recycle-scheduled"],
             check=False, capture_output=True, text=True, timeout=900,
         )
         summary = {}
@@ -135,7 +136,8 @@ def refresh_hourly_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
             key: summary.get(key) for key in
             ("status", "skipped_already_scheduled",
              "generated_image_formats", "image_post_queue_count",
-             "multimedia_generation", "generated_media_count", "published")
+             "multimedia_generation", "generated_media_count", "published",
+             "repost_round")
             if key in summary
         }
         temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
@@ -168,6 +170,10 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         jobs = []
         payload = {"version": 14, "published": False, "jobs": []}
     existing = {job["id"] for job in jobs}
+    try:
+        repost_round = max(0, int(queue.get("repost_round", 0)))
+    except (TypeError, ValueError):
+        raise ValueError("Queue repost_round must be a non-negative integer")
 
     grouped = {}
     for draft in queue["image_post_queue"]:
@@ -204,7 +210,8 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         new_jobs = []
         for platform in platforms:
             draft = items[platform]
-            job_id = "v14-" + platform + "-" + draft["id"]
+            base_job_id = "v14-" + platform + "-" + draft["id"]
+            job_id = base_job_id if repost_round == 0 else base_job_id + "-r" + str(repost_round)
             if job_id not in existing:
                 new_jobs.append({
                     "id": job_id,
@@ -213,6 +220,7 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
                     "scheduled_at": slot.isoformat(),
                     "published": False,
                     "source_draft_id": draft["id"],
+                    "repost_round": repost_round,
                 })
         if new_jobs:
             jobs.extend(new_jobs)
@@ -245,6 +253,8 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         video_job_id = "v14-" + platform + "-" + hashlib.sha256(
             (story_url + "\n" + digest).encode("utf-8")
         ).hexdigest()[:24]
+        if repost_round > 0:
+            video_job_id += "-r" + str(repost_round)
         if video_job_id in existing:
             continue
         scheduled_at = story_slots.get(story_url)
@@ -258,6 +268,7 @@ def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
             "scheduled_at": scheduled_at, "published": False,
             "video_platform": video.get("platform"),
             "video_sha256": digest,
+            "repost_round": repost_round,
         })
         existing.add(video_job_id)
         added += 1
@@ -315,11 +326,13 @@ def process_due(outdir: str, schedule_path: Path = SCHEDULE,
                         outdir, platform=job["platform"],
                         story_url=job["story_url"], live=True,
                         confirm=CONFIRMATION,
+                        delivery_cycle=int(job.get("repost_round", 0)),
                     )
                 else:
                     result = run(outdir, platform=job["platform"],
                                  story_url=job["story_url"], live=True,
-                                 confirm=CONFIRMATION)
+                                 confirm=CONFIRMATION,
+                                 delivery_cycle=int(job.get("repost_round", 0)))
                 statuses = [item.get("status") for item in result.get("results", [])]
                 if job["platform"] in VIDEO_PLATFORMS:
                     status = ("published" if result.get("status") == "completed"

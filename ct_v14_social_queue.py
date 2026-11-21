@@ -86,7 +86,8 @@ def _planned_time(start_at: str | None) -> datetime | None:
 
 def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
                          *, start_at: str | None = None,
-                         interval_minutes: int = 30) -> dict:
+                         interval_minutes: int = 30,
+                         repost_round: int = 0) -> dict:
     """Check all image formats and save an idempotent, review-only post queue."""
     if not 1 <= interval_minutes <= 1440:
         raise ValueError("Interval must be 1 to 1440 minutes")
@@ -201,6 +202,7 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
 
     result = {
         "version": 14,
+        "repost_round": int(repost_round),
         "workflow": "review_only_multi_platform_image_queue",
         "art_mode": source.get("art_mode", "cover"),
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -251,7 +253,10 @@ def main(argv=None) -> int:
     parser.add_argument("--start-at", default=None,
                         help="Optional timezone-aware review plan; NOT live scheduling")
     parser.add_argument("--interval-minutes", type=int, default=30)
+    parser.add_argument("--recycle-scheduled", action="store_true",
+                        help="After all discovered stories were scheduled, rotate old stories as a new campaign cycle")
     args = parser.parse_args(argv)
+    repost_round = 0
     if args.command == "create-and-prepare":
         from ct_v14_image_post import prepare_image_posts
         schedule_file = Path(args.exclude_scheduled_from)
@@ -262,25 +267,36 @@ def main(argv=None) -> int:
             if (schedule_data.get("published") is not False
                     or not isinstance(scheduled_jobs, list)):
                 raise ValueError("Existing schedule is invalid; refusing to repeat old posts")
+            repost_round = max(
+                (int(job.get("repost_round", 0)) for job in scheduled_jobs
+                 if isinstance(job, dict)), default=0)
             excluded_urls = {
                 str(job["story_url"]).rstrip("/")
                 for job in scheduled_jobs
                 if isinstance(job, dict) and isinstance(job.get("story_url"), str)
             }
         first = prepare_image_posts(args.limit, args.outdir,
-                                    exclude_story_urls=excluded_urls)
+                                    exclude_story_urls=excluded_urls,
+                                    repost_round=repost_round)
         if not first["posts"]:
-            if first.get("status") == "no_unposted_stories":
+            if first.get("status") == "no_unposted_stories" and args.recycle_scheduled:
+                repost_round += 1
+                first = prepare_image_posts(args.limit, args.outdir,
+                                            exclude_story_urls=set(),
+                                            repost_round=repost_round)
+            if not first["posts"] and first.get("status") == "no_unposted_stories":
                 print(json.dumps({
                     "status": "no_unposted_stories",
                     "skipped_already_scheduled": first.get("skipped_already_scheduled", 0),
+                    "repost_round": repost_round,
                     "generated_image_formats": 0,
                     "image_post_queue_count": 0,
                     "published": False,
                 }))
                 return 0
-            print(json.dumps({"status": "no_images_created", "published": False}))
-            return 1
+            if not first["posts"]:
+                print(json.dumps({"status": "no_images_created", "published": False}))
+                return 1
         if os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "").lower() == "true":
             from ct_v14_hourly_media import prepare_hourly_media
             prepare_hourly_media(args.outdir)
@@ -292,10 +308,12 @@ def main(argv=None) -> int:
         result = _read_json(path)
     else:
         result = prepare_social_queue(args.outdir, start_at=args.start_at,
-                                      interval_minutes=args.interval_minutes)
+                                      interval_minutes=args.interval_minutes,
+                                      repost_round=repost_round)
     print(json.dumps({
         "generated_image_formats": result["generated_image_formats"],
         "image_post_queue_count": result["image_post_queue_count"],
+        "repost_round": result.get("repost_round", 0),
         "thumbnail_only_count": result["thumbnail_only_count"],
         "video_workflows_waiting_for_mp4": result["video_workflows_waiting_for_mp4"],
         "multimedia_generation": result.get("multimedia_generation"),

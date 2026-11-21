@@ -35,6 +35,6 @@ jobs:
             git checkout feature/v14-social-publish-fb-ig-x-qa
             git reset --hard FETCH_HEAD
             .venv/bin/python -m pip install -r requirements.txt
-            .venv/bin/python -m py_compile ct_v14_scheduler.py ct_v14_social_queue.py ct_v14_social_publish.py ct_v14_video_publish.py ct_v14_operations.py v12_news.py growth_analytics.py
+            .venv/bin/python -m py_compile ct_v14_scheduler.py ct_v14_social_queue.py ct_v14_social_publish.py ct_v14_video_publish.py ct_v14_operations.py ct_v14_image_post.py ctos/pipeline.py v12_news.py growth_analytics.py
           '
           rm -f ~/.ssh/oracle_key

@@ -359,8 +359,13 @@ def _publish(item: dict) -> dict:
 def run(outdir: str | Path = "output/v14/image_posts", *,
         platform: str, story_url: str, live: bool = False,
         confirm: str | None = None, journal: str | Path = JOURNAL,
-        sender=None) -> dict:
+        sender=None, delivery_cycle: int = 0) -> dict:
     item = _load_video(outdir, platform, story_url)
+    if delivery_cycle > 0:
+        item["caption"] = item["caption"].rstrip() + "\n\n" + "இந்தக் கதையை மீண்டும் பாருங்கள்!"
+        item["id"] = hashlib.sha256(
+            (item["id"] + "\nrepost-cycle:" + str(delivery_cycle)).encode("utf-8")
+        ).hexdigest()[:24]
     if not live:
         return {"status": "dry_run_only", "published": False,
                 "platform": platform, "story_url": story_url}

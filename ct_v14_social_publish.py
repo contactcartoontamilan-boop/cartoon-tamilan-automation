@@ -302,8 +302,22 @@ def _finish(connection, item, status, remote_id=None):
 
 
 def run(outdir="output/v14/image_posts", *, platform="all", story_url=None,
-        live=False, confirm=None, journal=JOURNAL, sender=None):
+        live=False, confirm=None, journal=JOURNAL, sender=None,
+        delivery_cycle: int = 0):
     items = load_drafts(outdir, platform, story_url)
+    if delivery_cycle > 0:
+        cycle_ctas = (
+            "இந்தக் கதையை இன்னும் படிக்கவில்லையா? இன்று வாசியுங்கள்!",
+            "உங்கள் அடுத்த தமிழ் வாசிப்பு இங்கே.",
+            "கதையைப் படித்து உங்கள் கருத்தைப் பகிருங்கள்!",
+            "இந்த பழைய கதைத் தொடரை மீண்டும் வாசிக்கலாம்.",
+        )
+        suffix = cycle_ctas[(delivery_cycle - 1) % len(cycle_ctas)]
+        for item in items:
+            item["caption"] = item["caption"].rstrip() + "\n\n" + suffix
+            item["id"] = hashlib.sha256(
+                (item["id"] + "\nrepost-cycle:" + str(delivery_cycle)).encode("utf-8")
+            ).hexdigest()[:24]
     if not live:
         return {"status": "dry_run_only", "network_calls": 0,
                 "published": False, "scheduler_running": False,

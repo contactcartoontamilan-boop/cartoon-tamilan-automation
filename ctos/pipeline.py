@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from auto_story_cover import auto_cover
@@ -117,7 +117,7 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
         art_style="anime", make_video=False, voice=False, seconds=12,
         discover_func=None, artwork_fetcher=None,
         renderer=None, video_builder=None, audit=False, chapters=False,
-        exclude_story_urls=None):
+        exclude_story_urls=None, repost_round=0):
     if not 1 <= limit <= 6:
         raise ValueError("Use limit between 1 and 6")
     if art_mode not in ("cover", "comfyui"):
@@ -128,7 +128,10 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
     source = [item for item in discovered_source
               if str(item.get("link", "")).rstrip("/") not in excluded]
     skipped_already_scheduled = len(discovered_source) - len(source)
-    selected = select_stories(source, day, limit)
+    if not isinstance(repost_round, int) or repost_round < 0:
+        raise ValueError("repost_round must be a non-negative integer")
+    selection_day = day + timedelta(days=repost_round)
+    selected = select_stories(source, selection_day, limit)
     approvals = load_approvals()
     folder = Path(outdir) / day.isoformat()
     folder.mkdir(parents=True, exist_ok=True)

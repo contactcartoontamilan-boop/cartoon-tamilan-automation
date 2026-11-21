@@ -1,9 +1,12 @@
 # V14 hourly CartoonTamilan publishing
 
 The Oracle worker discovers existing CartoonTamilan stories from the homepage
-and the /novel/ archive. It skips every story URL already scheduled or
-published, then prepares the next unused story for the next hourly slot. It
-does not write a new story or recycle a story after the archive is exhausted.
+and the /novel/ archive. It prepares one eligible existing story for each hourly
+slot and publishes the same story to enabled channels. It never writes a new
+website story. After every discovered story has been shared once, it starts a
+new repost round, rotates through the archive again and changes the caption CTA
+for that round so the post identity is new. The same URL can therefore be
+shared again when the archive is exhausted.
 
 ## Current automatic channels
 

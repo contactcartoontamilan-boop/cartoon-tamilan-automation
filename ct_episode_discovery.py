@@ -101,6 +101,17 @@ def discover_episode_posts(limit=30, session=None, state_path=STATE_PATH) -> lis
     state = _load_state(path)
     novels = discover(limit=60, session=http)
     stories = state["stories"]
+    # Recover URLs marked attempted by an older version but never successfully
+    # recorded as an episode. They were failed fetches, not completed chapters.
+    for entry in stories.values():
+        completed = entry.get("episodes", {})
+        attempted = entry.get("attempted", [])
+        retry = [url for url in attempted if url not in completed]
+        entry["attempted"] = [url for url in attempted if url in completed]
+        frontier = entry.setdefault("frontier", [])
+        for url in retry:
+            if url not in frontier:
+                frontier.append(url)
 
     for novel in novels:
         novel_url = novel.get("link", "")
@@ -131,6 +142,7 @@ def discover_episode_posts(limit=30, session=None, state_path=STATE_PATH) -> lis
         scan_budget = 40
 
     entries = list(stories.values())
+    failed_this_run = set()
     while scan_budget and any(entry.get("frontier") for entry in entries):
         did_work = False
         for entry in entries:
@@ -139,15 +151,20 @@ def discover_episode_posts(limit=30, session=None, state_path=STATE_PATH) -> lis
                 continue
             frontier.sort(key=lambda url: (_episode_number(url) or 10**9, url))
             target = frontier.pop(0)
-            if target in entry.get("attempted", []) or target in entry.get("episodes", {}):
+            if (target in entry.get("attempted", [])
+                    or target in entry.get("episodes", {})
+                    or target in failed_this_run):
                 continue
             did_work = True
-            entry.setdefault("attempted", []).append(target)
             scan_budget -= 1
             try:
                 html = _get_html(target, http)
             except (ValueError, requests.RequestException):
+                # Preserve transient failures for the next hourly discovery run.
+                entry.setdefault("frontier", []).append(target)
+                failed_this_run.add(target)
                 continue
+            entry.setdefault("attempted", []).append(target)
             chapter_title = _title(html, target.rsplit("/", 2)[-2])
             body = extract_chapter_text(html, limit_chars=5000)
             number = _episode_number(target, chapter_title)

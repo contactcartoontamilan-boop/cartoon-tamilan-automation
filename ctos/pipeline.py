@@ -131,7 +131,17 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
     if not isinstance(repost_round, int) or repost_round < 0:
         raise ValueError("repost_round must be a non-negative integer")
     selection_day = day + timedelta(days=repost_round)
-    selected = select_stories(source, selection_day, limit)
+    if any(item.get("content_type") == "episode" for item in source):
+        def episode_order(item):
+            try:
+                number = int(item.get("episode_number") or 10**9)
+            except (TypeError, ValueError):
+                number = 0
+            return (number, str(item.get("parent_title", "")).casefold(),
+                    str(item.get("link", "")))
+        selected = sorted(source, key=episode_order)[:limit]
+    else:
+        selected = select_stories(source, selection_day, limit)
     approvals = load_approvals()
     folder = Path(outdir) / day.isoformat()
     folder.mkdir(parents=True, exist_ok=True)

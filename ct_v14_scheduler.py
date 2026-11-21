@@ -113,8 +113,7 @@ def refresh_hourly_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
         completed = subprocess.run(
             [sys.executable, "ct_v14_social_queue.py", "create-and-prepare",
              "--limit", "1", "--outdir", outdir,
-             "--exclude-scheduled-from", str(schedule_path),
-             "--recycle-scheduled"],
+             "--exclude-scheduled-from", str(schedule_path)],
             check=False, capture_output=True, text=True, timeout=900,
         )
         summary = {}

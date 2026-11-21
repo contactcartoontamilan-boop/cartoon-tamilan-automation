@@ -21,7 +21,8 @@ BODY_SELECTORS = (".chapter-content", ".reading-content", ".entry-content",
 
 def owned_story_url(url):
     p = urlsplit(url)
-    return p.scheme == "https" and p.hostname in HOSTS and p.path.startswith("/novel/")
+    return (p.scheme == "https" and p.hostname in HOSTS
+            and (p.path.startswith("/novel/") or p.path.startswith("/chapter/")))
 
 
 def chapter_urls(story_url, html, limit=8):

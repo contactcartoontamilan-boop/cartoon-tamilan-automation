@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -81,6 +82,9 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
             run_args["art_style"] = art_style
             run_args["exclude_story_urls"] = exclude_story_urls
             run_args["repost_round"] = repost_round
+            if os.getenv("CT_V14_POST_EPISODES", "true").lower() == "true":
+                from ct_episode_discovery import discover_episode_posts
+                run_args["discover_func"] = discover_episode_posts
         return (runner or run)(**run_args)
 
     report = invoke(effective_mode)

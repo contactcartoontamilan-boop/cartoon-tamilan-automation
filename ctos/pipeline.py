@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from auto_story_cover import auto_cover
@@ -116,20 +116,40 @@ def build_one(story, base, approval=None, art_mode="cover", art_style="anime",
 def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
         art_style="anime", make_video=False, voice=False, seconds=12,
         discover_func=None, artwork_fetcher=None,
-        renderer=None, video_builder=None, audit=False, chapters=False):
+        renderer=None, video_builder=None, audit=False, chapters=False,
+        exclude_story_urls=None, repost_round=0):
     if not 1 <= limit <= 6:
         raise ValueError("Use limit between 1 and 6")
     if art_mode not in ("cover", "comfyui"):
         raise ValueError("Supported artwork: own story cover or configured ComfyUI")
     day = day or date.today()
-    source = (discover_func or discover)(limit=30)
-    selected = select_stories(source, day, limit)
+    discovered_source = (discover_func or discover)(limit=30)
+    excluded = {str(url).rstrip("/") for url in (exclude_story_urls or set())}
+    source = [item for item in discovered_source
+              if str(item.get("link", "")).rstrip("/") not in excluded]
+    skipped_already_scheduled = len(discovered_source) - len(source)
+    if not isinstance(repost_round, int) or repost_round < 0:
+        raise ValueError("repost_round must be a non-negative integer")
+    selection_day = day + timedelta(days=repost_round)
+    if any(item.get("content_type") == "episode" for item in source):
+        def episode_order(item):
+            try:
+                number = int(item.get("episode_number") or 10**9)
+            except (TypeError, ValueError):
+                number = 0
+            return (number, str(item.get("parent_title", "")).casefold(),
+                    str(item.get("link", "")))
+        selected = sorted(source, key=episode_order)[:limit]
+    else:
+        selected = select_stories(source, selection_day, limit)
     approvals = load_approvals()
     folder = Path(outdir) / day.isoformat()
     folder.mkdir(parents=True, exist_ok=True)
     report = {
         "date": day.isoformat(), "version": 13,
-        "discovered": len(source), "selected": len(selected),
+        "discovered": len(discovered_source),
+        "skipped_already_scheduled": skipped_already_scheduled,
+        "selected": len(selected),
         "prepared": [], "failed": [], "live_publishing": False,
         "review_required": True,
         "art_mode": art_mode,
@@ -186,7 +206,9 @@ def run(limit=1, day=None, outdir="output/v13", art_mode="cover",
             except Exception as error:
                 report["research_warnings"].append("Chapter extraction: " + type(error).__name__)
     report["status"] = ("draft_ready_review_required" if report["prepared"] and not report["failed"]
-                        else "partial" if report["prepared"] else "failed")
+                        else "partial" if report["prepared"] else
+                        "no_unposted_stories" if discovered_source and not source
+                        else "failed")
     write_json(folder / "report.json", report)
     write_json(Path(outdir) / "latest.json",
                {"status": report["status"], "report": str(folder / "report.json"),

@@ -46,8 +46,8 @@ def sync(stories=None, filename=BIBLES):
 
 
 def scene_prompt(title, bible=None, style="anime"):
-    if style not in ("anime", "cinematic_3d"):
-        raise ValueError("Artwork style must be anime or cinematic_3d")
+    if style not in ("anime", "cinematic_3d", "realistic_cinematic"):
+        raise ValueError("Artwork style must be anime, cinematic_3d, or realistic_cinematic")
     verified = validate_bible(bible)
     if verified:
         synopsis = bible["synopsis"].strip()[:900]
@@ -60,8 +60,15 @@ def scene_prompt(title, bible=None, style="anime"):
         context = "Non-canonical symbolic promotional artwork, not a verified chapter or character scene."
         characters = ("Three entirely original fantasy-adventure character designs in a dynamic ensemble; "
                       "center hero and two flanking companions.")
-    medium = ("intricate original hand-painted anime fantasy key visual" if style == "anime"
-              else "original premium cinematic 3D-render-style image (not a mesh/model)")
+    medium = {
+        "anime": "intricate original hand-painted anime fantasy key visual",
+        "cinematic_3d": "original premium cinematic 3D-render-style image (not a mesh/model)",
+        "realistic_cinematic": (
+            "original photorealistic cinematic fantasy key art, believable natural "
+            "faces and skin texture, physically grounded fabrics and materials, "
+            "film-grade lighting and depth"
+        ),
+    }[style]
     return (
         f"High-end international illustrated fantasy novel social poster art, {medium}. "
         f"Story title context: {title[:180]}. {context} {characters} "

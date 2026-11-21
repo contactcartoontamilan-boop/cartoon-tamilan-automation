@@ -82,3 +82,20 @@ bash setup_oracle_v12.sh
 - Real generative 3D-looking anime art requires a configured AI inference model;
   Oracle A1 CPU does not have a GPU. Technical dimension checks do not
   guarantee 100% artwork/story-language correctness.
+
+
+## Multi-model AI router foundation
+
+- See [multi-provider AI setup](README_MULTI_MODEL_AI.md).
+- `ct_ai_router.py` routes text prompts to OpenAI, Claude, Gemini, Grok, or local Ollama.
+- Cloud API keys stay in Oracle's private `.env`; no provider is free or unlimited through this router.
+- This adds text-generation routing only. It does not enable image/video/voice generation or live social publishing by itself.
+
+
+## Multi-model AI and multimedia
+
+- `ct_ai_router.py` routes text to OpenAI, Claude, Gemini, Grok or local Ollama.
+- `ct_multimedia.py` provides opt-in image generation (OpenAI/Gemini/xAI),
+  short AI video (xAI), and voice generation (OpenAI/Gemini/xAI/Azure).
+- Setup, quotas, CLI use and current limitations: [README_MULTI_MODEL_AI.md](README_MULTI_MODEL_AI.md).
+- Media generation remains disabled by default and separate from the hourly social queue; nothing is published by these adapters.

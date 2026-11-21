@@ -123,10 +123,16 @@ def generate(prompt, destination, workflow_path=None, timeout=600, session=None,
     return destination
 
 def story_prompt(title, style="anime"):
-    if style not in ("anime", "cinematic_3d"):
+    if style not in ("anime", "cinematic_3d", "realistic_cinematic"):
         raise ValueError("Unsupported artwork style")
-    look = ("polished original anime key visual, intricate hand painted illustration"
-            if style == "anime" else "polished original cinematic stylized 3D-render look")
+    look = {
+        "anime": "polished original anime key visual, intricate hand painted illustration",
+        "cinematic_3d": "polished original cinematic stylized 3D-render look",
+        "realistic_cinematic": (
+            "photorealistic original cinematic fantasy key art, natural expressive "
+            "faces, believable skin and fabric texture, film-grade lighting"
+        ),
+    }[style]
     return (f"{look}, vibrant fantasy-inspired novel marketing artwork for a story titled {title!r}; "
             "dynamic luminous lighting, layered depth, expressive original character designs, "
             "intricate worldbuilding ambience, dramatic color and particles, portrait key art. "
@@ -138,7 +144,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--title")
     p.add_argument("--check", action="store_true", help="Check whether local ComfyUI is running")
-    p.add_argument("--style", choices=["anime", "cinematic_3d"], default="anime")
+    p.add_argument("--style", choices=["anime", "cinematic_3d", "realistic_cinematic"], default="anime")
     p.add_argument("--out", default="output/comfy_art.png")
     a = p.parse_args()
     if a.check:

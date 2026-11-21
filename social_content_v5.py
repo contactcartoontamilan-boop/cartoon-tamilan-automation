@@ -1,6 +1,6 @@
 """CartoonTamilan V5 bilingual social draft creator.
 
-Content is based only on supplied title/summary; no invented plot or AI claim.
+Content is based only on supplied title, synopsis and verified approved copy.
 All outputs are review-required and never sent to social APIs.
 """
 import argparse
@@ -34,7 +34,7 @@ TAGS = {
 }
 
 
-def short_summary(summary, max_chars=300):
+def short_summary(summary, max_chars=420):
     s = re.sub(r"\s+", " ", re.sub(r"<[^>]*>", " ", summary or "")).strip()
     if len(s) <= max_chars:
         return s
@@ -60,35 +60,70 @@ def make_social_pack(item, genres=(), verified_intro_ta="", verified_intro_en=""
     if urlsplit(url).hostname not in {"cartoontamilan.in", "www.cartoontamilan.in"}:
         raise ValueError("Story must be hosted on CartoonTamilan")
     title_clean = short_summary(title, 115)
-    summary = short_summary(item.get("summary"), 260)
-    # The metadata summary may be Tamil-only; don't claim it is translated.
-    ta_intro = verified_intro_ta.strip() or ("புதிய கதையுலகை அறிமுகம் செய்கிறோம்: " + title_clean + ". " + summary).strip()
-    en_intro = verified_intro_en.strip() or ("Discover an original story on CartoonTamilan: " + title_clean + ".")
+    source_description = (
+        item.get("summary") or item.get("description") or
+        item.get("excerpt") or item.get("plot")
+    )
+    summary = short_summary(source_description, 420)
+    # Never translate or embellish source prose. Use reviewed English if available.
+    ta_intro = verified_intro_ta.strip() or (
+        "புதிய கதையுலகை அறிமுகம் செய்கிறோம்: " + title_clean +
+        (". " + summary if summary else ".")
+    )
+    english_source = item.get("description_en") or item.get("summary_en") or ""
+    en_intro = verified_intro_en.strip() or (
+        short_summary(english_source, 420) or
+        "Discover an original story on CartoonTamilan: " + title_clean + "."
+    )
     notes = []
-    if not verified_intro_ta:
-        notes.append("Tamil intro is a template assembled from source metadata; review grammar and accuracy.")
-    if not verified_intro_en:
-        notes.append("English intro is not a chapter translation; provide a verified English synopsis for richer copy.")
+    if not verified_intro_ta and not summary:
+        notes.append("Tamil copy has no source synopsis; add a verified plot description for richer captions.")
+    if not verified_intro_en and not english_source:
+        notes.append("English copy is a short promotional line; add a reviewed English synopsis for richer captions.")
     slug = "story_" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
     tags = hashtags(genres)
     fb = tracked_link(url, "facebook", slug)
     ig = tracked_link(url, "instagram", slug)
     prompts = {
-        "anime_illustration": "Create an ORIGINAL anime-inspired illustration based ONLY on the verified character bible for this story. Preserve existing character design, do not invent story events, no famous franchise characters, no text baked into artwork.",
-        "cinematic_3d_style": "Create an ORIGINAL cinematic 3D-style illustration based ONLY on approved story/character reference notes. This is 3D-style artwork, not a real 3D mesh/model. No copyrighted characters, no typography.",
-        "meme": "Create an original Tamil anime-fandom meme concept relevant to the verified chapter and use original or licensed art. Do not imply unrelated anime franchise artwork is owned by CartoonTamilan.",
+        "realistic_cinematic": (
+            "Create a photorealistic, cinematic original story image in 9:16. "
+            "Use only the verified source description and approved character bible; "
+            "keep character appearance consistent, add no unverified plot details, "
+            "and include no text, logos, watermark, or franchise characters."
+        ),
+        "anime_illustration": (
+            "Create an ORIGINAL anime-inspired illustration based ONLY on the "
+            "verified character bible for this story. Preserve established design, "
+            "do not invent story events, and add no text or famous franchise characters."
+        ),
+        "cinematic_3d_style": (
+            "Create an ORIGINAL cinematic 3D-style illustration from approved "
+            "story/character references. No copyrighted characters or typography."
+        ),
+        "meme": (
+            "Create an original Tamil anime-fandom meme concept relevant to the "
+            "verified chapter and use original or licensed art."
+        ),
     }
     return {
         "story_title": title,
         "story_url": url,
         "genres": list(genres),
+        "source_description": summary,
         "intro_tamil": ta_intro,
         "intro_english": en_intro,
-        "facebook": {"caption": f"📖 {ta_intro}\n\n🌍 {en_intro}\n\n👉 Read: {fb}\n\n{tags}", "link": fb},
-        "instagram": {"caption": f"📚 {title_clean}\n\n{ta_intro}\n\n{en_intro}\n\n🔗 Story link in bio / profile.\n{tags}", "tracked_link_for_bio": ig, "requires_public_media": True},
+        "facebook": {
+            "caption": f"📖 {ta_intro}\n\n🌍 {en_intro}\n\n👉 Read the full story:\n{fb}\n\n{tags}",
+            "link": fb,
+        },
+        "instagram": {
+            "caption": f"📚 {title_clean}\n\n{ta_intro}\n\n{en_intro}\n\n🔗 Full story: link in bio.\n💬 Which moment caught your attention?\n{tags}",
+            "tracked_link_for_bio": ig,
+            "requires_public_media": True,
+        },
         "hashtags": tags.split(),
         "creative_prompts": prompts,
-        "creative_note": "Prompts are plans only; image generation is NOT implemented here.",
+        "creative_note": "Prompts are saved as creative direction; image generation is handled by the configured ComfyUI path.",
         "review_notes": notes,
         "status": "draft_review_required",
     }
@@ -111,5 +146,7 @@ if __name__ == "__main__":
     p.add_argument("--intro-ta", default="")
     p.add_argument("--intro-en", default="")
     a = p.parse_args()
-    print("Social drafts saved:", build_from_file(a.draft, a.out, [g.strip() for g in a.genres.split(",") if g.strip()], a.intro_ta, a.intro_en))
+    print("Social drafts saved:", build_from_file(draft_path=a.draft, out_path=a.out,
+        genres=[g.strip() for g in a.genres.split(",") if g.strip()],
+        intro_ta=a.intro_ta, intro_en=a.intro_en))
     print("DRY RUN: No Facebook / Instagram posts sent.")

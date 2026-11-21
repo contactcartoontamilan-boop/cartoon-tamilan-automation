@@ -21,10 +21,39 @@ LABELS = {
 def make_captions(story, approval=None):
     url = story.get("link", "")
     parts = urlsplit(url)
+    allowed_path = (parts.path.startswith("/novel/") or
+                    (story.get("content_type") == "episode" and
+                     parts.path.startswith("/chapter/")))
     if (parts.scheme != "https" or parts.hostname not in
-            ("cartoontamilan.in", "www.cartoontamilan.in") or
-            not parts.path.startswith("/novel/")):
-        raise ValueError("Only original stories on CartoonTamilan HTTPS /novel/ may be promoted")
+            ("cartoontamilan.in", "www.cartoontamilan.in") or not allowed_path):
+        raise ValueError("Only original CartoonTamilan story or episode URLs may be promoted")
+
+    if story.get("content_type") == "episode":
+        title = story["title"].strip()
+        parent = str(story.get("parent_title") or "").strip()
+        episode_number = story.get("episode_number")
+        episode_label = ("எபிசோடு " + str(episode_number) if episode_number
+                         else "புதிய எபிசோடு")
+        excerpt = " ".join(str(story.get("summary") or "").split())[:260].strip()
+        tags = ["#CartoonTamilan", "#TamilStories", "#TamilNovels", "#TamilAnimeStory"]
+        summary_line = ("📖 Episode teaser: " + excerpt + "\n\n") if excerpt else ""
+        base_caption = ("✨ " + episode_label + " வெளியானது!\n\n" + parent + "\n"
+                        + title + "\n\n" + summary_line
+                        + "📚 முழு எபிசோடு: " + url + "\n\n"
+                        + " ".join(tags))
+        captions = {channel: base_caption for channel in
+                    ("youtube", "pinterest", "threads", "linkedin", "telegram")}
+        captions["facebook"] = base_caption
+        captions["instagram"] = (base_caption
+                                 + "\n💬 படித்துவிட்டு உங்கள் கருத்தைச் சொல்லுங்கள்!")
+        captions["x"] = (title[:100] + " — " + url + " #CartoonTamilan")
+        return {
+            "captions": captions, "hashtags": tags,
+            "tracked_story_url": url, "requires_editorial_review": True,
+            "bio_link_setup_required": False, "verified_intro_only": False,
+            "facebook_pinned_comment": "📖 முழு எபிசோடு: " + url,
+        }
+
     pack = premium_copy(story, approval or {})
     source = make_brief(story, approval=approval, channel="instagram")
     tags = " ".join(pack.get("hashtags", []))
@@ -45,7 +74,7 @@ def make_captions(story, approval=None):
     max_title = max(24, 260 - len(url) - 42)
     captions["x"] = (short_title[:max_title].rstrip() +
                      ("…" if len(short_title) > max_title else "") +
-                     "\\nOriginal Tamil story — read: " + url)
+                     "\nOriginal Tamil story — read: " + url)
     return {
         "captions": captions,
         "hashtags": pack.get("hashtags", []),

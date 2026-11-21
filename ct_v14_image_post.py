@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""V14 image-post preview automation. Reuses V13 artwork/layout code; NEVER publishes.
+"""V14 image-post preparation with realistic ComfyUI and cover fallback.
 
-Run on the isolated V14 checkout. Discovers an owned-site novel, builds image
-drafts and captions, verifies saved JPEGs, and writes a review-only queue.
-No Meta/Telegram/email API calls are made by this entry point.
+This builds drafts only. In auto mode, try the configured local ComfyUI using
+realistic cinematic prompts; if it is unavailable or cannot prepare a story,
+fall back to the existing story cover so hourly queue preparation can continue.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-from datetime import datetime, timezone
+import os
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from PIL import Image
@@ -46,23 +47,55 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_posts",
-                        *, runner=None) -> dict:
-    """Save verified, unapproved post drafts; do not post or email anything.
-
-    Uses the existing V13 safe draft renderer instead of duplicating it.
-    A runner can be injected for completely offline tests.
-    """
+                        *, runner=None, art_mode: str = "auto",
+                        art_style: str = "realistic_cinematic",
+                        exclude_story_urls=None, repost_round: int = 0) -> dict:
+    """Prepare unpublished drafts; auto mode prefers realistic AI art safely."""
     if not 1 <= limit <= 6:
         raise ValueError("Choose between 1 and 6 stories")
+    if art_mode not in ("auto", "cover", "comfyui"):
+        raise ValueError("Choose art_mode auto, cover, or comfyui")
+    if art_style not in ("anime", "cinematic_3d", "realistic_cinematic"):
+        raise ValueError("Choose anime, cinematic_3d, or realistic_cinematic")
     root = Path(outdir).resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    report = (runner or run)(
-        limit=limit, outdir=str(root), art_mode="cover",
-        make_video=False, voice=False, audit=False, chapters=False)
+    effective_mode = art_mode
+    fallback_reason = None
+    if art_mode == "auto":
+        try:
+            from comfyui_art_v9 import check_connection
+            check_connection()
+            effective_mode = "comfyui"
+        except (RuntimeError, ValueError, OSError) as exc:
+            effective_mode = "cover"
+            fallback_reason = type(exc).__name__
+
+    def invoke(mode):
+        run_args = {
+            "limit": limit, "outdir": str(root), "art_mode": mode,
+            "make_video": False, "voice": False, "audit": False, "chapters": False,
+        }
+        # Keep compatibility with injected preview runners; only production
+        # pipeline receives the selected art style.
+        if runner is None:
+            run_args["art_style"] = art_style
+            run_args["exclude_story_urls"] = exclude_story_urls
+            run_args["repost_round"] = repost_round
+            if os.getenv("CT_V14_POST_EPISODES", "true").lower() == "true":
+                from ct_episode_discovery import discover_episode_posts
+                run_args["discover_func"] = discover_episode_posts
+        return (runner or run)(**run_args)
+
+    report = invoke(effective_mode)
+    if art_mode == "auto" and effective_mode == "comfyui" and not report.get("prepared"):
+        # A live endpoint may still lack the approved story bible/workflow.
+        fallback_reason = "ComfyUICouldNotPrepareStory"
+        effective_mode = "cover"
+        report = invoke(effective_mode)
+
     posts = []
     story_manifests = []
-
     for item in report.get("prepared", []):
         manifest = _inside(root, item["manifest"])
         data = json.loads(manifest.read_text(encoding="utf-8"))
@@ -114,7 +147,14 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         "workflow": "website_to_image_post_preview",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "source_pipeline": "v13_safe_preview_renderer",
-        "status": "draft_ready_review_required" if posts else "no_drafts_created",
+        "art_mode_requested": art_mode,
+        "art_mode": effective_mode,
+        "art_style": art_style,
+        "art_fallback_reason": fallback_reason,
+        "skipped_already_scheduled": report.get("skipped_already_scheduled", 0),
+        "status": ("draft_ready_review_required" if posts else
+                   "no_unposted_stories" if report.get("status") == "no_unposted_stories"
+                   else "no_drafts_created"),
         "stories_prepared": len(story_manifests),
         "post_drafts_created": len(posts),
         "story_manifests": story_manifests,
@@ -126,9 +166,11 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
         "live_publishing": False,
         "email_sent": False,
         "notes": [
-            "Uses website story covers, not newly generated anime illustrations.",
-            "Check cover license, story match, Tamil typography and any baked-in text.",
-            "No post is uploaded or scheduled; approvals and API permissions are separate.",
+            ("Generated with configured ComfyUI; review the original artwork."
+             if effective_mode == "comfyui"
+             else "Used the existing story cover because realistic ComfyUI was unavailable."),
+            "Captions use source or approved story descriptions; verify plot details and Tamil before publishing.",
+            "This step only prepares drafts; the separate hourly publisher handles authorized posts.",
         ],
     }
     _write_json(root / "image_post_preview.json", result)
@@ -137,10 +179,15 @@ def prepare_image_posts(limit: int = 1, outdir: str | Path = "output/v14/image_p
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Auto-discover CartoonTamilan stories and save review-only image posts")
+        description="Prepare social image drafts; prefer realistic ComfyUI art with safe cover fallback")
     parser.add_argument("command", nargs="?", choices=("create", "status"), default="create")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--outdir", default="output/v14/image_posts")
+    parser.add_argument("--art-mode", choices=("auto", "cover", "comfyui"), default="auto",
+                        help="auto tries realistic ComfyUI then falls back to the story cover")
+    parser.add_argument("--style", choices=("anime", "cinematic_3d", "realistic_cinematic"),
+                        default="realistic_cinematic",
+                        help="Generated-art style; auto defaults to realistic cinematic")
     args = parser.parse_args(argv)
     if args.command == "status":
         path = Path(args.outdir) / "image_post_preview.json"
@@ -149,11 +196,16 @@ def main(argv=None) -> int:
             return 1
         result = json.loads(path.read_text(encoding="utf-8"))
     else:
-        result = prepare_image_posts(args.limit, args.outdir)
+        result = prepare_image_posts(args.limit, args.outdir,
+                                    art_mode=args.art_mode, art_style=args.style)
     print(json.dumps({
         "status": result["status"],
         "stories_prepared": result.get("stories_prepared", 0),
         "post_drafts_created": result.get("post_drafts_created", 0),
+        "art_mode_requested": result.get("art_mode_requested", result.get("art_mode", "cover")),
+        "art_mode": result.get("art_mode", "cover"),
+        "art_style": result.get("art_style", "realistic_cinematic"),
+        "art_fallback_reason": result.get("art_fallback_reason"),
         "preview_file": str(Path(args.outdir) / "image_post_preview.json"),
         "failures": result.get("failures", []),
         "published": False,

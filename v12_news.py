@@ -54,7 +54,14 @@ def discover_news(sources, session=None, max_per_source=5):
         for entry in feed.entries[:max_per_source]:
             link = str(entry.get("link") or "").strip()
             parsed = urlsplit(link)
-            if parsed.scheme != "https" or not parsed.hostname:
+            configured_hosts = source.get("allowed_hosts", [])
+            if not isinstance(configured_hosts, list):
+                configured_hosts = []
+            allowed_hosts = {str(value).lower().rstrip(".") for value in
+                             ([urlsplit(url).hostname] + configured_hosts)}
+            if (parsed.scheme != "https" or not parsed.hostname
+                    or parsed.hostname.lower().rstrip(".") not in allowed_hosts
+                    or parsed.username or parsed.password or parsed.port not in (None, 443)):
                 continue
             title = str(entry.get("title") or "").strip()[:180]
             if not title:

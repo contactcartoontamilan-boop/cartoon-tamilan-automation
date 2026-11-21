@@ -47,7 +47,8 @@ def readiness_report(queue: dict | None, story: dict | None = None,
     for platform in PLATFORMS:
         status[platform] = {
             "drafts": counts[platform],
-            "adapter": ("existing_gated_not_authorized_or_tested"
+            "adapter": ("v14_opt_in_gated_not_authorized_or_tested" if platform == "x" else
+                        "existing_gated_not_authorized_or_tested"
                         if platform in REAL_ADAPTERS else "not_integrated"),
             "live_publishing_verified": False,
             "review_required": True,

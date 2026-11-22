@@ -102,6 +102,10 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     """Pad each spoken line to its scene boundary on the 24 fps timeline."""
     from v12_voice import synthesize
 
+    provider = os.getenv("CT_V14_REEL_VOICE", "espeak").strip().lower()
+    if provider not in {"espeak", "recorded", "azure"}:
+        raise ValueError("Expected CT_V14_REEL_VOICE=espeak, recorded or azure")
+    rate_target = "24000" if provider == "azure" else "22050"
     boundaries = [0]
     with wave.open(str(work / "narration.wav"), "wb") as track:
         for index, caption in enumerate(cues):
@@ -112,9 +116,15 @@ def _voice_timeline(cues, seconds, work, scene_dir):
             if path.is_file() and transcript.is_file() and transcript.read_text(encoding="utf-8").strip() == spoken:
                 converted = work / f"line_{index}.wav"
                 subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
-                                "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le", str(converted)],
+                                "-ar", rate_target, "-ac", "1", "-c:a", "pcm_s16le", str(converted)],
                                check=True, timeout=120)
                 path = converted
+            elif provider == "recorded":
+                raise ValueError(f"Missing matching Tamil recording for scene {index + 1}")
+            elif provider == "azure":
+                from ctos.v14_voice import azure_tamil_female
+                path = azure_tamil_female(spoken, work / f"line_{index}.wav",
+                                          rights_confirmed=True)
             else:
                 path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
                                   rights_confirmed=True)

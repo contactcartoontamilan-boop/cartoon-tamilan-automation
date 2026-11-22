@@ -65,7 +65,66 @@ def _mux_voice(video: Path, voice: Path, output: Path) -> Path:
 
 
 
-def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int) -> Path:
+
+def _scene_picture(index, passage, cover, scene_dir, destination, used):
+    """Use numbered episode artwork, then original local interlude illustrations."""
+    from PIL import Image, ImageDraw, ImageOps
+    import random
+
+    candidates = [scene_dir / f"scene_{index + 1:02d}.{ext}"
+                  for ext in ("png", "jpg", "jpeg", "webp")]
+    if index == 0:
+        candidates.append(cover)
+    for path in candidates:
+        if not path.is_file():
+            continue
+        with Image.open(path) as source:
+            picture = ImageOps.contain(source.convert("RGB"), (720, 1280))
+        digest = hashlib.sha256(picture.tobytes()).digest()
+        if digest not in used:
+            used.add(digest)
+            canvas = Image.new("RGB", (720, 1280), "#101827")
+            canvas.paste(picture, ((720-picture.width)//2, (1280-picture.height)//2))
+            canvas.save(destination)
+            return
+    # Decorative chapter plates are original artwork, not depictions of plot events.
+    seed = hashlib.sha256(f"{index}:{passage}".encode()).digest()
+    rng = random.Random(seed)
+    palette = [("#161532", "#9382bc", "#51486e"), ("#102d44", "#59bad0", "#287789"),
+               ("#33253a", "#efba77", "#966775"), ("#192e35", "#98d6ac", "#4b8275")]
+    base, light, mid = palette[index % len(palette)]
+    canvas = Image.new("RGB", (720, 1280), base)
+    pen = ImageDraw.Draw(canvas)
+    for _ in range(75):
+        px, py = rng.randrange(720), rng.randrange(850)
+        pen.ellipse((px, py, px+2, py+2), fill=light)
+    if index == 1:
+        # Layered paper-cut mountain panorama.
+        pen.ellipse((435, 240, 555, 360), fill=light)
+        for band in range(3):
+            ridge = [(x, 530 + 105*band + rng.randrange(-100, 90))
+                     for x in range(0, 801, 80)]
+            pen.polygon(ridge + [(800, 1280), (0, 1280)], fill=(mid, base, mid)[band])
+    elif index == 2:
+        # Concentric celestial map.
+        for radius in (80, 155, 230, 300):
+            pen.ellipse((360-radius, 530-radius, 360+radius, 530+radius), outline=mid, width=3)
+        points = [(rng.randrange(100,620), rng.randrange(310,740)) for _ in range(7)]
+        pen.line(points, fill=light, width=3)
+        for px, py in points:
+            pen.ellipse((px-7, py-7, px+7, py+7), fill=light)
+    else:
+        # An open book for the reading invitation.
+        for direction in (-1, 1):
+            edge = 360 + direction*226
+            pen.polygon([(360,480),(edge,416),(edge,666),(360,738)], fill=mid, outline=light)
+            for offset in range(40, 190, 30):
+                pen.line([(360+direction*22,480+offset),(edge-direction*22,425+offset)],
+                         fill=light, width=3)
+    canvas.save(destination)
+
+
+def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_dir: Path) -> Path:
     """Burn complete source sentences into a gently moving vertical teaser."""
     from poster_generator import find_font
     from PIL import ImageFont
@@ -103,17 +162,25 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int) -> Pat
             blocks.append(f"{index + 1}\n{start} --> {end}\n{line}\n")
         subtitles = work / "subtitles.srt"
         subtitles.write_text("\n".join(blocks), encoding="utf-8")
-        filters = (
-            "scale=720:1280:force_original_aspect_ratio=decrease,"
-            "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x101827,setsar=1,"
-            f"zoompan=z='1+0.06*on/{frames}':x='iw/2-iw/zoom/2':"
-            f"y='ih/2-ih/zoom/2':d={frames}:s=720x1280:fps=24,"
-            "subtitles=subtitles.srt:fontsdir=.:force_style='"
-            f"FontName={family},FontSize=10,Outline=2,BorderStyle=3,"
-            "BackColour=&H50000000,Alignment=2,MarginV=38,MarginL=18,MarginR=18'"
-        )
-        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(artwork),
-                        "-vf", filters, "-frames:v", str(frames), "-an",
+        inputs, filters, used = [], [], set()
+        for index, cue in enumerate(cues):
+            image = work / f"shot_{index}.png"
+            _scene_picture(index, cue, artwork, scene_dir, image, used)
+            inputs.extend(["-i", image.name])
+            shot_frames = (index + 1) * frames // len(cues) - index * frames // len(cues)
+            filters.append(
+                f"[{index}:v]zoompan=z='1+0.04*on/{shot_frames}':"
+                f"x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={shot_frames}:"
+                f"s=720x1280:fps=24,setsar=1,format=yuv420p[s{index}]"
+            )
+        sequence = "".join(f"[s{i}]" for i in range(len(cues)))
+        filters.append(sequence + f"concat=n={len(cues)}:v=1:a=0,"
+                       "subtitles=subtitles.srt:fontsdir=.:force_style='"
+                       f"FontName={family},FontSize=10,Outline=2,BorderStyle=3,"
+                       "BackColour=&H50000000,Alignment=2,MarginV=38,MarginL=18,MarginR=18'[out]")
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", *inputs,
+                        "-filter_complex_threads", "1", "-filter_complex", ";".join(filters),
+                        "-map", "[out]", "-frames:v", str(frames), "-an",
                         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                         "-movflags", "+faststart", "teaser.mp4"], cwd=work,
                        check=True, timeout=300)
@@ -169,7 +236,8 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
                     "CT_V14_LOCAL_VIDEO_SECONDS", "20")), 30))
             except ValueError:
                 duration = 20
-            video_path = _episode_reel(story, poster, target / "story_motion_comic", duration)
+            video_path = _episode_reel(story, poster, target / "story_motion_comic", duration,
+                                       manifest_path.parent / "scenes")
             if not video_path.is_relative_to(root) or not video_path.is_file():
                 raise ValueError("Local motion video was not created safely")
             video_rel = str(video_path.relative_to(root))

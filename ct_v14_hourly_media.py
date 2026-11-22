@@ -70,8 +70,7 @@ def _mux_voice(video: Path, voice: Path, output: Path) -> Path:
 
 def _scene_picture(index, passage, cover, scene_dir, destination, used):
     """Use numbered episode artwork, then original local interlude illustrations."""
-    from PIL import Image, ImageDraw, ImageOps
-    import random
+    from PIL import Image, ImageOps
 
     candidates = [scene_dir / f"scene_{index + 1:02d}.{ext}"
                   for ext in ("png", "jpg", "jpeg", "webp")]
@@ -89,40 +88,12 @@ def _scene_picture(index, passage, cover, scene_dir, destination, used):
             canvas.paste(picture, ((720-picture.width)//2, (1280-picture.height)//2))
             canvas.save(destination)
             return
-    # Decorative chapter plates are original artwork, not depictions of plot events.
-    seed = hashlib.sha256(f"{index}:{passage}".encode()).digest()
-    rng = random.Random(seed)
-    palette = [("#161532", "#9382bc", "#51486e"), ("#102d44", "#59bad0", "#287789"),
-               ("#33253a", "#efba77", "#966775"), ("#192e35", "#98d6ac", "#4b8275")]
-    base, light, mid = palette[index % len(palette)]
-    canvas = Image.new("RGB", (720, 1280), base)
-    pen = ImageDraw.Draw(canvas)
-    for _ in range(75):
-        px, py = rng.randrange(720), rng.randrange(850)
-        pen.ellipse((px, py, px+2, py+2), fill=light)
-    if index == 1:
-        # Layered paper-cut mountain panorama.
-        pen.ellipse((435, 240, 555, 360), fill=light)
-        for band in range(3):
-            ridge = [(x, 530 + 105*band + rng.randrange(-100, 90))
-                     for x in range(0, 801, 80)]
-            pen.polygon(ridge + [(800, 1280), (0, 1280)], fill=(mid, base, mid)[band])
-    elif index == 2:
-        # Concentric celestial map.
-        for radius in (80, 155, 230, 300):
-            pen.ellipse((360-radius, 530-radius, 360+radius, 530+radius), outline=mid, width=3)
-        points = [(rng.randrange(100,620), rng.randrange(310,740)) for _ in range(7)]
-        pen.line(points, fill=light, width=3)
-        for px, py in points:
-            pen.ellipse((px-7, py-7, px+7, py+7), fill=light)
-    else:
-        # An open book for the reading invitation.
-        for direction in (-1, 1):
-            edge = 360 + direction*226
-            pen.polygon([(360,480),(edge,416),(edge,666),(360,738)], fill=mid, outline=light)
-            for offset in range(40, 190, 30):
-                pen.line([(360+direction*22,480+offset),(edge-direction*22,425+offset)],
-                         fill=light, width=3)
+    # Keep the episode's visual identity when numbered scene illustrations are missing.
+    # Alternate framing on its own artwork; never illustrate invented events.
+    with Image.open(cover) as original:
+        source = original.convert("RGB")
+    anchors = ((0.5, 0.5), (0.25, 0.42), (0.75, 0.45), (0.5, 0.62))
+    canvas = ImageOps.fit(source, (720, 1280), centering=anchors[index % len(anchors)])
     canvas.save(destination)
 
 
@@ -175,7 +146,7 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
             cues.append(sentence)
         if len(cues) == 3:
             break
-    cues.append(f"{label} · முழுக் கதையைப் படிக்க\nCartoonTamilan.in")
+    cues.append(f"{label} · முழுக் கதையைப் படிக்கவும்\nCartoonTamilan.in")
 
     folder.mkdir(parents=True, exist_ok=True)
     frames = seconds * 24
@@ -212,8 +183,8 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
         sequence = "".join(f"[s{i}]" for i in range(len(cues)))
         filters.append(sequence + f"concat=n={len(cues)}:v=1:a=0,"
                        "subtitles=subtitles.srt:fontsdir=.:force_style='"
-                       f"FontName={family},FontSize=10,Outline=2,BorderStyle=3,"
-                       "BackColour=&H50000000,Alignment=2,MarginV=38,MarginL=18,MarginR=18'[out]")
+                       f"FontName={family},FontSize=12,Outline=1.5,BorderStyle=3,"
+                       "OutlineColour=&H00201810,BackColour=&H40201810,Alignment=2,MarginV=38,MarginL=18,MarginR=18'[out]")
         audio = ["-an"]
         if voiced:
             inputs.extend(["-i", "narration.wav"])

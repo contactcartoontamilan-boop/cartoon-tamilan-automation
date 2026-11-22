@@ -27,13 +27,14 @@ def _episode_titles(story, url):
     """Use an English URL slug only when it provides a readable episode title."""
     slug = unquote(urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1])
     match = re.search(
-        r"^(?P<series>.+?)-episode-?(?P<number>\\d+)(?:-(?P<episode>.+))?$",
+        r"^(?P<series>.+?)-episode-?(?P<number>\d+)(?:-(?P<episode>.+))?$",
         slug, re.IGNORECASE,
     )
     if match:
-        clean = lambda value: " ".join(
-            word.capitalize() for word in re.sub(r"[-_]+", " ", value).split()
-        )
+        def clean(value):
+            return " ".join(
+                word.capitalize() for word in re.sub(r"[-_]+", " ", value).split()
+            )
         series = clean(match.group("series"))
         episode = clean(match.group("episode") or "")
         number = story.get("episode_number") or match.group("number")
@@ -55,12 +56,12 @@ def _episode_caption(story, channel, url):
         episode_label += f": {episode_en}"
     heading = f"{series_en} | {episode_label}"
     english = (
-        f"{heading}\\n"
-        f"An original story published in Tamil by CartoonTamilan. "
-        f"Read this episode in Tamil and follow the series."
+        f"{heading}\n"
+        "An original story published in Tamil by CartoonTamilan. "
+        "Read this episode in Tamil and follow the series."
     )
     tamil = (
-        f"📖 {tamil_series} — {tamil_title}\\n"
+        f"📖 {tamil_series} — {tamil_title}\n"
         "கார்ட்டூன் தமிழனில் வெளியாகும் அசல் தமிழ் கதை."
     )
 
@@ -72,14 +73,15 @@ def _episode_caption(story, channel, url):
         question = "💬 Which story or episode should we feature next?"
 
     tags = " ".join(EPISODE_TAGS)
-    text = f"{english}\\n\\n{tamil}\\n\\n{cta}\\n{question}\\n\\n{tags}"
+    text = f"{english}\n\n{tamil}\n\n{cta}\n{question}\n\n{tags}"
     if channel == "x":
         # Keep the destination link and one searchable niche tag within X's limit.
         short_cta = f"Read in Tamil: {url}"
-        suffix = f"\\n{short_cta} #TamilStories"
-        prefix = f"{heading}\\nOriginal Tamil story."
+        suffix = f"\n{short_cta} #TamilStories"
+        prefix = f"{heading}\nOriginal Tamil story."
         available = max(12, 280 - len(suffix) - len(prefix) - 1)
-        return prefix + ("\\n" + episode_label[:available] if len(episode_label) > available
+        shortened_label = episode_label[:available]
+        return prefix + (f"\n{shortened_label}" if len(episode_label) > available
                          else "") + suffix
     return text
 
@@ -116,10 +118,10 @@ def make_captions(story, approval=None):
     }
     # Reuse the approved bilingual intro; no invented characters or chapters.
     for platform, label in LABELS.items():
-        content = (f"{story['title']}\\n\\n"
-                   f"{(approval or {}).get('intro_ta', '')}\\n"
-                   f"{(approval or {}).get('intro_en', '')}\\n\\n"
-                   f"{label} {url}\\n\\n{tags}")
+        content = (f"{story['title']}\n\n"
+                   f"{(approval or {}).get('intro_ta', '')}\n"
+                   f"{(approval or {}).get('intro_en', '')}\n\n"
+                   f"{label} {url}\n\n{tags}")
         captions[platform] = content.strip()
     # Character limits below are conservative publishing/export design bounds.
     # Do not truncate away the actual story CTA/link on short-post platforms.
@@ -127,7 +129,7 @@ def make_captions(story, approval=None):
     max_title = max(24, 260 - len(url) - 42)
     captions["x"] = (short_title[:max_title].rstrip() +
                      ("…" if len(short_title) > max_title else "") +
-                     "\\nOriginal Tamil story — read: " + url)
+                     "\nOriginal Tamil story — read: " + url)
     return {
         "captions": captions,
         "hashtags": pack.get("hashtags", []),

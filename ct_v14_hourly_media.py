@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import tempfile
 import shutil
 import subprocess
 from pathlib import Path
@@ -62,6 +64,64 @@ def _mux_voice(video: Path, voice: Path, output: Path) -> Path:
     return output
 
 
+
+def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int) -> Path:
+    """Burn complete source sentences into a gently moving vertical teaser."""
+    from poster_generator import find_font
+    from PIL import ImageFont
+
+    title = " ".join(story["title"].split())
+    number = story.get("episode_number")
+    label = f"எபிசோடு {number}" if number else "தமிழ்க் கதை"
+    opening = title if len(title) <= 70 else label
+    cues = [opening]
+    # Discovery may truncate the summary mid-sentence. Skip its unfinished tail.
+    for match in re.finditer(r"[^.!?…]+[.!?]+", story.get("summary") or ""):
+        sentence = " ".join(match.group().split())
+        if (re.search(r"[\u0b80-\u0bff]", sentence) and 8 <= len(sentence) <= 110
+                and not sentence.endswith("..") and sentence not in cues):
+            cues.append(sentence)
+        if len(cues) == 3:
+            break
+    cues.append(f"{label} · முழுக் கதையைப் படிக்க\nCartoonTamilan.in")
+
+    folder.mkdir(parents=True, exist_ok=True)
+    frames = seconds * 24
+    font = Path(find_font()).resolve()
+    family = ImageFont.truetype(str(font), 24).getname()[0]
+    with tempfile.TemporaryDirectory(dir=folder) as temp:
+        work = Path(temp)
+        shutil.copy2(font, work / ("caption" + font.suffix))
+        def stamp(ms):
+            return f"00:00:{ms // 1000:02d},{ms % 1000:03d}"
+        blocks = []
+        for index, line in enumerate(cues):
+            # SRT is interpreted by libass. Keep chapter content as plain text.
+            line = re.sub(r"[<>{}\\]", "", line)
+            start = stamp(seconds * 1000 * index // len(cues))
+            end = stamp(seconds * 1000 * (index + 1) // len(cues))
+            blocks.append(f"{index + 1}\n{start} --> {end}\n{line}\n")
+        subtitles = work / "subtitles.srt"
+        subtitles.write_text("\n".join(blocks), encoding="utf-8")
+        filters = (
+            "scale=720:1280:force_original_aspect_ratio=decrease,"
+            "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x101827,setsar=1,"
+            f"zoompan=z='1+0.06*on/{frames}':x='iw/2-iw/zoom/2':"
+            f"y='ih/2-ih/zoom/2':d={frames}:s=720x1280:fps=24,"
+            "subtitles=subtitles.srt:fontsdir=.:force_style='"
+            f"FontName={family},FontSize=10,Outline=2,BorderStyle=3,"
+            "BackColour=&H50000000,Alignment=2,MarginV=38,MarginL=18,MarginR=18'"
+        )
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(artwork),
+                        "-vf", filters, "-frames:v", str(frames), "-an",
+                        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                        "-movflags", "+faststart", "teaser.mp4"], cwd=work,
+                       check=True, timeout=300)
+        subtitles.replace(folder / "subtitles.srt")
+        (work / "teaser.mp4").replace(folder / "teaser.mp4")
+    return folder / "teaser.mp4"
+
+
 def prepare_hourly_media(outdir: str | Path) -> dict:
     """Generate opted-in promo image/short video/CTA voice for one owned story."""
     if not _enabled():
@@ -97,28 +157,19 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
     if local_video and not api_enabled:
         try:
             assets = manifest.get("assets", {})
-            poster_rel = (assets.get("instagram_story")
-                          or assets.get("instagram_feed")
-                          or manifest.get("source_artwork"))
+            poster_rel = (manifest.get("source_artwork") or assets.get("instagram_story")
+                          or assets.get("instagram_feed"))
             if not isinstance(poster_rel, str) or not poster_rel:
                 raise ValueError("Story artwork is missing")
             poster = (manifest_path.parent / poster_rel).resolve()
             if not poster.is_relative_to(root) or not poster.is_file():
                 raise ValueError("Story artwork is outside the approved output folder")
-            from ctos.video import create_short
             try:
                 duration = max(8, min(int(os.getenv(
                     "CT_V14_LOCAL_VIDEO_SECONDS", "20")), 30))
             except ValueError:
                 duration = 20
-            script = (f"{title}. "
-                      "கார்ட்டூன் தமிழனில் அசல் தமிழ் கதையைப் படியுங்கள்.")
-            media = create_short(
-                poster, target / "story_motion_comic",
-                script=script, language="ta", seconds=duration,
-                voice_rights=False, use_tts=False,
-            )
-            video_path = Path(media["video"]).resolve()
+            video_path = _episode_reel(story, poster, target / "story_motion_comic", duration)
             if not video_path.is_relative_to(root) or not video_path.is_file():
                 raise ValueError("Local motion video was not created safely")
             video_rel = str(video_path.relative_to(root))

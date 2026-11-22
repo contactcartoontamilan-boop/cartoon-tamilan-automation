@@ -98,16 +98,26 @@ def _scene_picture(index, passage, cover, scene_dir, destination, used):
 
 
 
-def _voice_timeline(cues, seconds, work):
+def _voice_timeline(cues, seconds, work, scene_dir):
     """Pad each spoken line to its scene boundary on the 24 fps timeline."""
     from v12_voice import synthesize
 
     boundaries = [0]
     with wave.open(str(work / "narration.wav"), "wb") as track:
         for index, caption in enumerate(cues):
-            spoken = caption.replace("CartoonTamilan.in", "கார்ட்டூன் தமிழன் டாட் இன்")
-            path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
-                              rights_confirmed=True)
+            spoken = caption.split("\nCartoonTamilan.in")[0].replace(" · ", ". ")
+            # An episode editor can supply a recorded reading for this exact cue.
+            path = scene_dir / f"voice_{index+1:02d}.wav"
+            transcript = path.with_suffix(".txt")
+            if path.is_file() and transcript.is_file() and transcript.read_text(encoding="utf-8").strip() == spoken:
+                converted = work / f"line_{index}.wav"
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+                                "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le", str(converted)],
+                               check=True, timeout=120)
+                path = converted
+            else:
+                path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
+                                  rights_confirmed=True)
             with wave.open(str(path), "rb") as clip:
                 rate = clip.getframerate()
                 if clip.getnchannels() != 1 or clip.getsampwidth() != 2:
@@ -118,9 +128,7 @@ def _voice_timeline(cues, seconds, work):
                     raise ValueError("Narration sample rate changed")
                 count = clip.getnframes()
                 samples = clip.readframes(count)
-            slot = max(seconds * 24 * (index + 1) // len(cues)
-                       - seconds * 24 * index // len(cues),
-                       math.ceil(24 * count / rate) + 4)
+            slot = max(60, math.ceil(24 * count / rate) + 10)
             end = boundaries[-1] + slot
             length = end * rate // 24 - boundaries[-1] * rate // 24
             track.writeframesraw(samples + bytes(2 * (length - count)))
@@ -130,8 +138,9 @@ def _voice_timeline(cues, seconds, work):
 
 def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_dir: Path) -> Path:
     """Burn complete source sentences into a gently moving vertical teaser."""
-    from poster_generator import find_font
-    from PIL import ImageFont
+    from poster_generator import find_font, lines_for, require_tamil_shaping
+    from PIL import Image, ImageDraw, ImageFont
+    require_tamil_shaping()
 
     title = " ".join(story["title"].split())
     number = story.get("episode_number")
@@ -151,12 +160,12 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
     folder.mkdir(parents=True, exist_ok=True)
     frames = seconds * 24
     font = Path(find_font()).resolve()
-    family = ImageFont.truetype(str(font), 24).getname()[0]
+
     with tempfile.TemporaryDirectory(dir=folder) as temp:
         work = Path(temp)
-        shutil.copy2(font, work / ("caption" + font.suffix))
+
         voiced = os.getenv("CT_V14_LOCAL_VOICE_ENABLED", "true").lower() == "true"
-        boundaries = (_voice_timeline(cues, seconds, work) if voiced else
+        boundaries = (_voice_timeline(cues, seconds, work, scene_dir) if voiced else
                       [frames * i // len(cues) for i in range(len(cues) + 1)])
         def stamp(ms):
             return f"00:{ms // 60000:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
@@ -173,6 +182,27 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
         for index, cue in enumerate(cues):
             image = work / f"shot_{index}.png"
             _scene_picture(index, cue, artwork, scene_dir, image, used)
+            with Image.open(image) as source:
+                frame = source.convert("RGB")
+            draw = ImageDraw.Draw(frame)
+            for size in range(44, 25, -2):
+                face = ImageFont.truetype(str(font), size, layout_engine=ImageFont.Layout.RAQM)
+                try:
+                    lines = [line for paragraph in cue.splitlines()
+                             for line in lines_for(draw, paragraph, face, 554)]
+                except ValueError:
+                    continue
+                step = sum(face.getmetrics()) + 5
+                if len(lines) * step <= 300:
+                    break
+            else:
+                raise ValueError("Caption exceeds the safe reading area")
+            top = 1024 - step * len(lines)
+            draw.rounded_rectangle((38, top-18, 642, 1050), radius=18, fill="#101827")
+            for line in lines:
+                draw.text((340, top), line, font=face, anchor="ma", fill="white")
+                top += step
+            frame.save(image)
             inputs.extend(["-i", image.name])
             shot_frames = boundaries[index + 1] - boundaries[index]
             filters.append(
@@ -181,14 +211,11 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
                 f"s=720x1280:fps=24,setsar=1,format=yuv420p[s{index}]"
             )
         sequence = "".join(f"[s{i}]" for i in range(len(cues)))
-        filters.append(sequence + f"concat=n={len(cues)}:v=1:a=0,"
-                       "subtitles=subtitles.srt:fontsdir=.:force_style='"
-                       f"FontName={family},FontSize=12,Outline=1.5,BorderStyle=3,"
-                       "OutlineColour=&H00201810,BackColour=&H40201810,Alignment=2,MarginV=38,MarginL=18,MarginR=18'[out]")
+        filters.append(sequence + f"concat=n={len(cues)}:v=1:a=0[out]")
         audio = ["-an"]
         if voiced:
             inputs.extend(["-i", "narration.wav"])
-            audio = ["-map", f"{len(cues)}:a:0", "-c:a", "aac", "-b:a", "96k"]
+            audio = ["-map", f"{len(cues)}:a:0", "-af", "highpass=f=65,loudnorm=I=-17:TP=-1.5:LRA=8", "-ar", "48000", "-c:a", "aac", "-b:a", "128k"]
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", *inputs,
                         "-filter_complex_threads", "1", "-filter_complex", ";".join(filters),
                         "-map", "[out]", *audio,

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 
-VOICES = {"ta": "ta", "en": "en-us"}
+VOICES = {"ta": "ta+f3", "en": "en-us"}
 
 
 def synthesize(script, destination, lang="ta", rights_confirmed=False, executable=None):

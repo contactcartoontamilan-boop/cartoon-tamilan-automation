@@ -36,10 +36,10 @@ def _sha(path: Path) -> str:
 
 
 def _enabled() -> bool:
-    return (
-        os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "false").lower() == "true"
-        and os.getenv("ENABLE_AI_MEDIA_API", "false").lower() == "true"
-    )
+    hourly = os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "false").lower() == "true"
+    api_mode = os.getenv("ENABLE_AI_MEDIA_API", "false").lower() == "true"
+    local_video = os.getenv("CT_V14_LOCAL_VIDEO_ENABLED", "false").lower() == "true"
+    return hourly and (api_mode or local_video)
 
 
 def _mux_voice(video: Path, voice: Path, output: Path) -> Path:
@@ -89,6 +89,89 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
     key = hashlib.sha256(story_url.encode("utf-8")).hexdigest()[:16]
     target = root / "hourly_media" / key
     target.mkdir(parents=True, exist_ok=True)
+
+    # Zero-API CPU mode: turn the existing reviewed story artwork into a
+    # motion-comic MP4 with subtitles. This is not generative text-to-video.
+    local_video = os.getenv("CT_V14_LOCAL_VIDEO_ENABLED", "false").lower() == "true"
+    api_enabled = os.getenv("ENABLE_AI_MEDIA_API", "false").lower() == "true"
+    if local_video and not api_enabled:
+        try:
+            assets = manifest.get("assets", {})
+            poster_rel = (assets.get("instagram_story")
+                          or assets.get("instagram_feed")
+                          or manifest.get("source_artwork"))
+            if not isinstance(poster_rel, str) or not poster_rel:
+                raise ValueError("Story artwork is missing")
+            poster = (manifest_path.parent / poster_rel).resolve()
+            if not poster.is_relative_to(root) or not poster.is_file():
+                raise ValueError("Story artwork is outside the approved output folder")
+            from ctos.video import create_short
+            try:
+                duration = max(8, min(int(os.getenv(
+                    "CT_V14_LOCAL_VIDEO_SECONDS", "20")), 30))
+            except ValueError:
+                duration = 20
+            script = (f"{title}. "
+                      "கார்ட்டூன் தமிழனில் அசல் தமிழ் கதையைப் படியுங்கள்.")
+            media = create_short(
+                poster, target / "story_motion_comic",
+                script=script, language="ta", seconds=duration,
+                voice_rights=False, use_tts=False,
+            )
+            video_path = Path(media["video"]).resolve()
+            if not video_path.is_relative_to(root) or not video_path.is_file():
+                raise ValueError("Local motion video was not created safely")
+            video_rel = str(video_path.relative_to(root))
+            generated = ["motion_video", "subtitles"]
+            preview["generated_media"] = [{
+                "story_url": story_url,
+                "story_title": title,
+                "video_file": video_rel,
+                "video_sha256": _sha(video_path),
+                "video_with_voice_file": None,
+                "video_with_voice_sha256": None,
+                "voice_file": None,
+                "generated": generated,
+                "status": "draft_review_required",
+                "published": False,
+                "requires_human_review": True,
+                "story_accuracy": "motion-comic from reviewed story artwork; no new plot facts",
+            }]
+            preview["multimedia_generation"] = {
+                "status": "generated_local_motion_video",
+                "generated": generated,
+                "errors": [],
+                "published": False,
+                "provider": "local_ffmpeg",
+            }
+            _write_json(preview_path, preview)
+            return {
+                "status": "generated_local_motion_video",
+                "generated": generated,
+                "errors": [],
+                "story_url": story_url,
+                "published": False,
+            }
+        except Exception as exc:
+            preview["generated_media"] = []
+            preview["multimedia_generation"] = {
+                "status": "failed",
+                "generated": [],
+                "errors": [{"asset": "local_video",
+                            "error_type": type(exc).__name__}],
+                "published": False,
+                "provider": "local_ffmpeg",
+            }
+            _write_json(preview_path, preview)
+            return {
+                "status": "failed",
+                "generated": [],
+                "errors": [{"asset": "local_video",
+                            "error_type": type(exc).__name__}],
+                "story_url": story_url,
+                "published": False,
+            }
+
     prompt = (
         "Create a polished, original, text-free cinematic anime illustration "
         "for a Tamil novel promotion. Use only the story title as a broad mood "

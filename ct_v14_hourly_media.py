@@ -103,9 +103,15 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     from v12_voice import synthesize
 
     provider = os.getenv("CT_V14_REEL_VOICE", "espeak").strip().lower()
-    if provider not in {"espeak", "recorded", "azure"}:
-        raise ValueError("Expected CT_V14_REEL_VOICE=espeak, recorded or azure")
+    if provider not in {"espeak", "recorded", "azure", "indic_tiny"}:
+        raise ValueError("Expected CT_V14_REEL_VOICE=espeak, recorded, azure or indic_tiny")
     rate_target = "24000" if provider == "azure" else "22050"
+    neural = None
+    if provider == "indic_tiny":
+        from indic_tiny_tts import TinyTTSOnnx
+        model_dir = Path(os.environ["CT_TAMIL_MODEL_DIR"]).expanduser().resolve(strict=True)
+        neural = TinyTTSOnnx.from_pretrained(str(model_dir))
+        rate_target = "24000"
     boundaries = [0]
     with wave.open(str(work / "narration.wav"), "wb") as track:
         for index, caption in enumerate(cues):
@@ -121,6 +127,10 @@ def _voice_timeline(cues, seconds, work, scene_dir):
                 path = converted
             elif provider == "recorded":
                 raise ValueError(f"Missing matching Tamil recording for scene {index + 1}")
+            elif neural is not None:
+                path = work / f"line_{index}.wav"
+                samples = neural.synthesize(spoken, voice="female", seed=0)
+                neural.save_wav(samples, str(path))
             elif provider == "azure":
                 from ctos.v14_voice import azure_tamil_female
                 path = azure_tamil_female(spoken, work / f"line_{index}.wav",

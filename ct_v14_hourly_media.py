@@ -5,6 +5,8 @@ The existing scheduler's live publisher only publishes image posts, not Reels.
 """
 from __future__ import annotations
 
+import math
+import wave
 import hashlib
 import json
 import os
@@ -124,6 +126,37 @@ def _scene_picture(index, passage, cover, scene_dir, destination, used):
     canvas.save(destination)
 
 
+
+def _voice_timeline(cues, seconds, work):
+    """Pad each spoken line to its scene boundary on the 24 fps timeline."""
+    from v12_voice import synthesize
+
+    boundaries = [0]
+    with wave.open(str(work / "narration.wav"), "wb") as track:
+        for index, caption in enumerate(cues):
+            spoken = caption.replace("CartoonTamilan.in", "கார்ட்டூன் தமிழன் டாட் இன்")
+            path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
+                              rights_confirmed=True)
+            with wave.open(str(path), "rb") as clip:
+                rate = clip.getframerate()
+                if clip.getnchannels() != 1 or clip.getsampwidth() != 2:
+                    raise ValueError("Expected mono 16-bit narration")
+                if index == 0:
+                    track.setparams(clip.getparams())
+                elif rate != track.getframerate():
+                    raise ValueError("Narration sample rate changed")
+                count = clip.getnframes()
+                samples = clip.readframes(count)
+            slot = max(seconds * 24 * (index + 1) // len(cues)
+                       - seconds * 24 * index // len(cues),
+                       math.ceil(24 * count / rate) + 4)
+            end = boundaries[-1] + slot
+            length = end * rate // 24 - boundaries[-1] * rate // 24
+            track.writeframesraw(samples + bytes(2 * (length - count)))
+            boundaries.append(end)
+    return boundaries
+
+
 def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_dir: Path) -> Path:
     """Burn complete source sentences into a gently moving vertical teaser."""
     from poster_generator import find_font
@@ -151,14 +184,17 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
     with tempfile.TemporaryDirectory(dir=folder) as temp:
         work = Path(temp)
         shutil.copy2(font, work / ("caption" + font.suffix))
+        voiced = os.getenv("CT_V14_LOCAL_VOICE_ENABLED", "true").lower() == "true"
+        boundaries = (_voice_timeline(cues, seconds, work) if voiced else
+                      [frames * i // len(cues) for i in range(len(cues) + 1)])
         def stamp(ms):
-            return f"00:00:{ms // 1000:02d},{ms % 1000:03d}"
+            return f"00:{ms // 60000:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
         blocks = []
         for index, line in enumerate(cues):
             # SRT is interpreted by libass. Keep chapter content as plain text.
             line = re.sub(r"[<>{}\\]", "", line)
-            start = stamp(seconds * 1000 * index // len(cues))
-            end = stamp(seconds * 1000 * (index + 1) // len(cues))
+            start = stamp(round(boundaries[index] * 1000 / 24))
+            end = stamp(round(boundaries[index + 1] * 1000 / 24))
             blocks.append(f"{index + 1}\n{start} --> {end}\n{line}\n")
         subtitles = work / "subtitles.srt"
         subtitles.write_text("\n".join(blocks), encoding="utf-8")
@@ -167,7 +203,7 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
             image = work / f"shot_{index}.png"
             _scene_picture(index, cue, artwork, scene_dir, image, used)
             inputs.extend(["-i", image.name])
-            shot_frames = (index + 1) * frames // len(cues) - index * frames // len(cues)
+            shot_frames = boundaries[index + 1] - boundaries[index]
             filters.append(
                 f"[{index}:v]zoompan=z='1+0.04*on/{shot_frames}':"
                 f"x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={shot_frames}:"
@@ -178,12 +214,18 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
                        "subtitles=subtitles.srt:fontsdir=.:force_style='"
                        f"FontName={family},FontSize=10,Outline=2,BorderStyle=3,"
                        "BackColour=&H50000000,Alignment=2,MarginV=38,MarginL=18,MarginR=18'[out]")
+        audio = ["-an"]
+        if voiced:
+            inputs.extend(["-i", "narration.wav"])
+            audio = ["-map", f"{len(cues)}:a:0", "-c:a", "aac", "-b:a", "96k"]
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", *inputs,
                         "-filter_complex_threads", "1", "-filter_complex", ";".join(filters),
-                        "-map", "[out]", "-frames:v", str(frames), "-an",
+                        "-map", "[out]", *audio,
                         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                         "-movflags", "+faststart", "teaser.mp4"], cwd=work,
                        check=True, timeout=300)
+        if voiced:
+            (work / "narration.wav").replace(folder / "narration.wav")
         subtitles.replace(folder / "subtitles.srt")
         (work / "teaser.mp4").replace(folder / "teaser.mp4")
     return folder / "teaser.mp4"
@@ -242,14 +284,17 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
                 raise ValueError("Local motion video was not created safely")
             video_rel = str(video_path.relative_to(root))
             generated = ["motion_video", "subtitles"]
+            voiced = os.getenv("CT_V14_LOCAL_VOICE_ENABLED", "true").lower() == "true"
+            if voiced:
+                generated.extend(["voice", "video_with_voice"])
             preview["generated_media"] = [{
                 "story_url": story_url,
                 "story_title": title,
                 "video_file": video_rel,
                 "video_sha256": _sha(video_path),
-                "video_with_voice_file": None,
-                "video_with_voice_sha256": None,
-                "voice_file": None,
+                "video_with_voice_file": video_rel if voiced else None,
+                "video_with_voice_sha256": _sha(video_path) if voiced else None,
+                "voice_file": str(Path(video_rel).with_name("narration.wav")) if voiced else None,
                 "generated": generated,
                 "status": "draft_review_required",
                 "published": False,

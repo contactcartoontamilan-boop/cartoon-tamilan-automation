@@ -112,7 +112,18 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     neural = None
     if provider == "indic_tiny":
         import sys
-        model_dir = Path(os.environ["CT_TAMIL_MODEL_DIR"]).expanduser().resolve(strict=True)
+        configured_model_dir = os.getenv("CT_TAMIL_MODEL_DIR", "").strip()
+        if configured_model_dir:
+            model_dir = Path(configured_model_dir).expanduser().resolve(strict=True)
+        else:
+            # Free, pinned Tamil female TTS model; Hugging Face caches it for later runs.
+            from huggingface_hub import HfApi, snapshot_download
+            model_repo = "sulabhkatiyar/indic-tiny-tts-tamil"
+            model_revision = HfApi().model_info(model_repo, revision="c3a32ec").sha
+            model_dir = Path(snapshot_download(
+                repo_id=model_repo, revision=model_revision,
+                ignore_patterns=["*.safetensors", "samples/*", "assets/*"],
+            )).resolve(strict=True)
         if str(model_dir) not in sys.path:
             sys.path.insert(0, str(model_dir))
         from indic_tiny_tts import TinyTTSOnnx

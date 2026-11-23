@@ -25,12 +25,14 @@ SOURCE_PLATFORMS = {
     "instagram_story": "instagram_stories",
     "facebook_reel": "facebook_reels",
     "youtube_short": "youtube_shorts",
+    "youtube_full_episode": "youtube_full_episode",
 }
 ENABLE_FLAGS = {
     "instagram_reel": "CT_V14_ENABLE_INSTAGRAM_REELS",
     "instagram_story": "CT_V14_ENABLE_INSTAGRAM_STORIES",
     "facebook_reel": "CT_V14_ENABLE_FACEBOOK_REELS",
     "youtube_short": "CT_V14_ENABLE_YOUTUBE_SHORTS",
+    "youtube_full_episode": "CT_V14_ENABLE_YOUTUBE_LONG_VIDEO",
 }
 
 
@@ -43,7 +45,7 @@ def _json_file(path: Path) -> dict:
 
 def _load_video(outdir: str | Path, platform: str, story_url: str) -> dict:
     if platform not in SOURCE_PLATFORMS:
-        raise ValueError("Choose instagram_reel, instagram_story, facebook_reel or youtube_short")
+        raise ValueError("Choose instagram_reel, instagram_story, facebook_reel, youtube_short or youtube_full_episode")
     if not owned_story_url(story_url):
         raise PermissionError("Only CartoonTamilan story videos can be published")
     root = Path(outdir).resolve()
@@ -94,7 +96,9 @@ def _load_video(outdir: str | Path, platform: str, story_url: str) -> dict:
     preferred = "instagram" if platform == "instagram_reel" else "facebook"
     matching = next((item for item in image_drafts if item.get("platform") == preferred), None)
     caption = str(matching.get("caption") if matching else "").strip()
-    if platform == "youtube_short":
+    if platform in {"youtube_short", "youtube_full_episode"} and draft.get("caption"):
+        caption = str(draft["caption"]).strip()
+    elif platform == "youtube_short":
         caption = f"{title} | Cartoon Tamilan\n\nRead the original Tamil story: {story_url}\n#Shorts #TamilStories #CartoonTamilan"
     elif not caption:
         caption = f"{title}\n\nRead the original Tamil story: {story_url}\n#CartoonTamilan #TamilStories"
@@ -280,15 +284,17 @@ def _youtube_access_token() -> str:
     return str(token)
 
 
-def _publish_youtube_short(item: dict) -> dict:
+def _publish_youtube_video(item: dict, *, is_short: bool) -> dict:
     token = _youtube_access_token()
     path = Path(item["video_file"])
     size = path.stat().st_size
     metadata = {
         "snippet": {
-            "title": (item["story_title"][:85] + " #Shorts")[:100],
+            "title": ((item["story_title"][:85] + " #Shorts") if is_short
+                      else item["story_title"][:100]),
             "description": item["caption"][:5000],
-            "tags": ["CartoonTamilan", "TamilStories", "Shorts"],
+            "tags": (["CartoonTamilan", "TamilStories", "Shorts"] if is_short else
+                     ["CartoonTamilan", "TamilStories", "TamilAnime", "FullEpisode"]),
             "categoryId": "24",
             "defaultLanguage": "ta",
         },
@@ -352,7 +358,9 @@ def _publish(item: dict) -> dict:
     if item["platform"] == "facebook_reel":
         return _publish_facebook_reel(item)
     if item["platform"] == "youtube_short":
-        return _publish_youtube_short(item)
+        return _publish_youtube_video(item, is_short=True)
+    if item["platform"] == "youtube_full_episode":
+        return _publish_youtube_video(item, is_short=False)
     raise ValueError("Unsupported video platform")
 
 

@@ -16,6 +16,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import requests
+
 from ct_multimedia import generate_image, generate_video, generate_voice
 from ctos.creative import render_pack
 from ctos.platforms import PLATFORM_IMAGE
@@ -102,7 +104,7 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     """Pad each spoken line to its scene boundary on the 24 fps timeline."""
     from v12_voice import synthesize
 
-    provider = os.getenv("CT_V14_REEL_VOICE", "espeak").strip().lower()
+    provider = os.getenv("CT_V14_REEL_VOICE", "indic_tiny").strip().lower()
     if provider not in {"espeak", "recorded", "azure", "indic_tiny"}:
         raise ValueError("Expected CT_V14_REEL_VOICE=espeak, recorded, azure or indic_tiny")
     rate_target = "24000" if provider == "azure" else "22050"
@@ -139,7 +141,7 @@ def _voice_timeline(cues, seconds, work, scene_dir):
                 path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
                                   rights_confirmed=True)
             if provider == "indic_tiny":
-                speed = float(os.getenv("CT_TAMIL_VOICE_SPEED", "1.4"))
+                speed = float(os.getenv("CT_TAMIL_VOICE_SPEED", "1.3"))
                 if not 1.3 <= speed <= 1.5:
                     raise ValueError("CT_TAMIL_VOICE_SPEED must be between 1.3 and 1.5")
                 faster = work / f"tempo_{index}.wav"
@@ -164,8 +166,55 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     return boundaries
 
 
-def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_dir: Path) -> Path:
-    """Burn complete source sentences into a gently moving vertical teaser."""
+def _split_cues(text: str, limit: int = 150) -> list[str]:
+    """Split source text into short Tamil-readable narration/subtitle units."""
+    source = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not source:
+        return []
+    sentences = re.split(r"(?<=[.!?…।])\s+", source)
+    cues, current = [], ""
+    for sentence in sentences:
+        sentence = sentence.strip()
+        while len(sentence) > limit:
+            cut = sentence.rfind(" ", 0, limit + 1)
+            if cut < limit // 2:
+                cut = limit
+            part, sentence = sentence[:cut].strip(), sentence[cut:].strip()
+            if current:
+                cues.append(current)
+                current = ""
+            if part:
+                cues.append(part)
+        if not sentence:
+            continue
+        candidate = (current + " " + sentence).strip()
+        if len(candidate) > limit and current:
+            cues.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        cues.append(current)
+    return cues
+
+
+def _chapter_text(url: str) -> str:
+    """Retrieve only an owned public chapter; return the source text without rewriting."""
+    from v12_story_reader import _get_html, extract_chapter_text
+    if not owned_story_url(url):
+        raise ValueError("Full episode narration requires an owned HTTPS chapter URL")
+    session = requests.Session()
+    session.headers.update({"User-Agent": "CartoonTamilanEpisodeRenderer/1.0"})
+    text = extract_chapter_text(_get_html(url, session), limit_chars=1000000)
+    if len(text) < 120:
+        raise ValueError("Could not extract readable chapter text from the owned story page")
+    return text
+
+
+def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int,
+                  scene_dir: Path, *, narration_text: str | None = None,
+                  output_name: str = "teaser.mp4", is_full_episode: bool = False) -> Path:
+    """Render a source-faithful vertical episode video with Tamil subtitles and voice."""
     from poster_generator import find_font, lines_for, require_tamil_shaping
     from PIL import Image, ImageDraw, ImageFont
     require_tamil_shaping()
@@ -174,16 +223,21 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
     number = story.get("episode_number")
     label = f"எபிசோடு {number}" if number else "தமிழ்க் கதை"
     opening = title if len(title) <= 70 else label
-    cues = [opening]
-    # Discovery may truncate the summary mid-sentence. Skip its unfinished tail.
-    for match in re.finditer(r"[^.!?…]+[.!?]+", story.get("summary") or ""):
-        sentence = " ".join(match.group().split())
-        if (re.search(r"[\u0b80-\u0bff]", sentence) and 8 <= len(sentence) <= 110
-                and not sentence.endswith("..") and sentence not in cues):
-            cues.append(sentence)
-        if len(cues) == 3:
-            break
-    cues.append(f"{label} · முழுக் கதையைப் படிக்கவும்\nCartoonTamilan.in")
+    source_text = str(narration_text or story.get("summary") or "").strip()
+    if not source_text:
+        raise ValueError("No story text available for voice-over")
+    body_cues = _split_cues(source_text, 150)
+    if is_full_episode:
+        cues = [opening, *body_cues]
+    else:
+        # Limit Reels to an opening excerpt; the full chapter gets its own YouTube cut.
+        max_chars = max(900, min(2500, seconds * 18))
+        excerpt = source_text[:max_chars]
+        last_stop = max(excerpt.rfind(mark) for mark in (". ", "! ", "? ", "… ", "। "))
+        if last_stop >= max_chars // 2:
+            excerpt = excerpt[:last_stop + 1]
+        cues = [opening, *_split_cues(excerpt, 150),
+                f"{label} · முழு எபிசோடைப் படிக்கவும்\nCartoonTamilan.in"]
 
     folder.mkdir(parents=True, exist_ok=True)
     frames = seconds * 24
@@ -195,6 +249,11 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
         voiced = os.getenv("CT_V14_LOCAL_VOICE_ENABLED", "true").lower() == "true"
         boundaries = (_voice_timeline(cues, seconds, work, scene_dir) if voiced else
                       [frames * i // len(cues) for i in range(len(cues) + 1)])
+        actual_seconds = boundaries[-1] / 24
+        if voiced and not is_full_episode and not 60 <= actual_seconds <= 180:
+            raise ValueError(
+                f"Reel voice duration {actual_seconds:.1f}s is outside the requested 60–180s range"
+            )
         def stamp(ms):
             return f"00:{ms // 60000:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
         blocks = []
@@ -248,13 +307,13 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int, scene_
                         "-filter_complex_threads", "1", "-filter_complex", ";".join(filters),
                         "-map", "[out]", *audio,
                         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                        "-movflags", "+faststart", "teaser.mp4"], cwd=work,
+                        "-movflags", "+faststart", output_name], cwd=work,
                        check=True, timeout=300)
         if voiced:
             (work / "narration.wav").replace(folder / "narration.wav")
         subtitles.replace(folder / "subtitles.srt")
-        (work / "teaser.mp4").replace(folder / "teaser.mp4")
-    return folder / "teaser.mp4"
+        (work / output_name).replace(folder / output_name)
+    return folder / output_name
 
 
 def prepare_hourly_media(outdir: str | Path) -> dict:
@@ -300,16 +359,32 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
             if not poster.is_relative_to(root) or not poster.is_file():
                 raise ValueError("Story artwork is outside the approved output folder")
             try:
-                duration = max(8, min(int(os.getenv(
-                    "CT_V14_LOCAL_VIDEO_SECONDS", "20")), 30))
+                reel_seconds = max(60, min(int(os.getenv(
+                    "CT_V14_REEL_SECONDS", "90")), 180))
             except ValueError:
-                duration = 20
-            video_path = _episode_reel(story, poster, target / "story_motion_comic", duration,
-                                       manifest_path.parent / "scenes")
+                reel_seconds = 90
+            chapter = _chapter_text(story_url)
+            reel_dir = target / "reel"
+            long_dir = target / "youtube_full_episode"
+            reel_path = _episode_reel(
+                story, poster, reel_dir, reel_seconds, manifest_path.parent / "scenes",
+                narration_text=chapter, output_name="reel_9x16.mp4",
+            )
+            long_seconds = max(60, min(3600, len(chapter) // 12))
+            long_path = _episode_reel(
+                story, poster, long_dir, long_seconds, manifest_path.parent / "scenes",
+                narration_text=chapter, output_name="youtube_full_episode_9x16.mp4",
+                is_full_episode=True,
+            )
+            video_path = reel_path
             if not video_path.is_relative_to(root) or not video_path.is_file():
                 raise ValueError("Local motion video was not created safely")
-            video_rel = str(video_path.relative_to(root))
-            generated = ["motion_video", "subtitles"]
+            if not long_path.is_relative_to(root) or not long_path.is_file():
+                raise ValueError("YouTube full-episode video was not created safely")
+            video_rel = str(reel_path.relative_to(root))
+            long_rel = str(long_path.relative_to(root))
+            generated = ["reel_1_to_3_minutes", "full_chapter_youtube_video",
+                         "source_text_tamil_subtitles"]
             voiced = os.getenv("CT_V14_LOCAL_VOICE_ENABLED", "true").lower() == "true"
             if voiced:
                 generated.extend(["voice", "video_with_voice"])
@@ -317,18 +392,43 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
                 "story_url": story_url,
                 "story_title": title,
                 "video_file": video_rel,
-                "video_sha256": _sha(video_path),
+                "video_sha256": _sha(reel_path),
                 "video_with_voice_file": video_rel if voiced else None,
-                "video_with_voice_sha256": _sha(video_path) if voiced else None,
+                "video_with_voice_sha256": _sha(reel_path) if voiced else None,
+                "youtube_full_episode_file": long_rel,
+                "youtube_full_episode_sha256": _sha(long_path),
+                "youtube_full_episode_voice_file": (
+                    str(Path(long_rel).with_name("narration.wav")) if voiced else None
+                ),
+                "reel_subtitles_file": str(Path(video_rel).with_name("subtitles.srt")),
+                "youtube_full_episode_subtitles_file": str(
+                    Path(long_rel).with_name("subtitles.srt")
+                ),
+                "youtube_full_episode_caption": (
+                    f"{title} | Full Tamil Story Episode\n\n"
+                    f"இந்த வீடியோவில் இணையதள அத்தியாயத்தின் முழு தமிழ் narration உள்ளது.\n"
+                    f"Read the original Tamil episode: {story_url}\n"
+                    "Original Tamil stories and anime-style fiction from CartoonTamilan.in.\n\n"
+                    "#TamilStories #TamilStory #TamilAnime #CartoonTamilan"
+                ),
+                "reel_caption": (
+                    f"{title} | Tamil Story Reel\n\n"
+                    f"இந்த அத்தியாயத்தின் காட்சிகளைப் பாருங்கள். முழு கதை: {story_url}\n"
+                    "Discover original Tamil stories at CartoonTamilan.in.\n\n"
+                    "#TamilStories #TamilReels #TamilAnime #CartoonTamilan"
+                ),
                 "voice_file": str(Path(video_rel).with_name("narration.wav")) if voiced else None,
+                "source_text_chars": len(chapter),
+                "voice_speed": float(os.getenv("CT_TAMIL_VOICE_SPEED", "1.3")),
+                "reel_duration_target_seconds": reel_seconds,
                 "generated": generated,
                 "status": "draft_review_required",
                 "published": False,
                 "requires_human_review": True,
-                "story_accuracy": "motion-comic from reviewed story artwork; no new plot facts",
+                "story_accuracy": "narration uses extracted owned chapter text verbatim; artwork is motion-comic stills",
             }]
             preview["multimedia_generation"] = {
-                "status": "generated_local_motion_video",
+                "status": "generated_local_episode_videos",
                 "generated": generated,
                 "errors": [],
                 "published": False,
@@ -336,10 +436,13 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
             }
             _write_json(preview_path, preview)
             return {
-                "status": "generated_local_motion_video",
+                "status": "generated_local_episode_videos",
                 "generated": generated,
                 "errors": [],
                 "story_url": story_url,
+                "reel_file": video_rel,
+                "youtube_full_episode_file": long_rel,
+                "voice_speed": float(os.getenv("CT_TAMIL_VOICE_SPEED", "1.3")),
                 "published": False,
             }
         except Exception as exc:

@@ -1,0 +1,46 @@
+name: Preview Episode 3 Tamil neural narration
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/v14-social-publish-fb-ig-x-qa]
+    paths: [.github/workflows/episode-tamil-voice.yml]
+permissions: {}
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Prepare local CPU voice tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/voice"
+          "$RUNNER_TEMP/voice/bin/pip" install numpy onnxruntime huggingface_hub
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Render and check Episode 3
+        run: |
+          mkdir sample
+          "$RUNNER_TEMP/voice/bin/python" - <<'PY'
+          from huggingface_hub import HfApi, snapshot_download
+          from pathlib import Path
+          import sys, numpy as np
+          repo = "sulabhkatiyar/indic-tiny-tts-tamil"
+          sha = HfApi().model_info(repo, revision="c3a32ec").sha
+          assert sha.startswith("c3a32ec")
+          folder = snapshot_download(repo, revision=sha, ignore_patterns=["*.safetensors","samples/*","assets/*"])
+          sys.path.insert(0, folder)
+          from indic_tiny_tts import TinyTTSOnnx
+          model = TinyTTSOnnx.from_pretrained(folder)
+          script = "அன்று இரவு, அகாடமியின் விளையாட்டரங்கம் ஒளிர்ந்தது. கண்ணாடிக் கட்டிடங்களை, மெல்லிய பனி மூடியிருந்தது."
+          audio = np.asarray(model.synthesize(script, voice="female", seed=0))
+          assert np.isfinite(audio).all() and audio.size > 24000 and np.abs(audio).max() > 0.01
+          model.save_wav(audio, "sample/Episode-3-Tamil.wav")
+          Path("sample/Credits.txt").write_text(script+"\nVoice: Indic Tiny TTS Tamil by sulabhkatiyar, CC BY 4.0. https://huggingface.co/"+repo+"\nRevision "+sha)
+          PY
+          for speed in 1.3 1.4 1.5; do
+            ffmpeg -v error -i sample/Episode-3-Tamil.wav -af "atempo=$speed" -c:a libmp3lame -q:a 2 "sample/Episode-3-Tamil-${speed}x.mp3"
+          done
+          rm sample/Episode-3-Tamil.wav
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Episode-3-Tamil-Neural
+          path: sample/
+          if-no-files-found: error

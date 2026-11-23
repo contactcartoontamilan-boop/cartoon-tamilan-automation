@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""Oracle cron worker for automatically scheduled V14 Instagram/Facebook drafts.
+
+When CT_V14_AUTO_SCHEDULE_QUEUE=true, discovers unpublished stories in the
+queue and adds Instagram + Facebook jobs on hourly Asia/Kolkata slots. The
+publisher runs automated content and media checks before publishing.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from ct_v14_social_publish import CONFIRMATION, load_drafts, run
+from v12_story_reader import owned_story_url
+
+SCHEDULE = Path("data/v14_scheduled_posts.json")
+STATE = Path("data/v14_scheduler.sqlite3")
+ALLOWED = {"instagram", "facebook", "x"}
+REQUIRED_IMAGE_PLATFORMS = {"instagram", "facebook"}
+VIDEO_PLATFORMS = {"instagram_reel", "instagram_story", "facebook_reel", "youtube_short"}
+VIDEO_SOURCE_PLATFORMS = {
+    "instagram_reels": "instagram_reel",
+    "instagram_stories": "instagram_story",
+    "facebook_reels": "facebook_reel",
+    "youtube_shorts": "youtube_short",
+}
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def read_jobs(path: Path = SCHEDULE) -> list[dict]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("published") is not False:
+        raise ValueError("Schedule must be an unpublished JSON object")
+    jobs = payload.get("jobs")
+    if not isinstance(jobs, list):
+        raise ValueError("Schedule jobs must be a list")
+    seen = set()
+    for job in jobs:
+        if not isinstance(job, dict):
+            raise ValueError("Each scheduled job must be an object")
+        job_id = job.get("id")
+        platform = job.get("platform")
+        story_url = job.get("story_url")
+        scheduled_at = job.get("scheduled_at")
+        if not isinstance(job_id, str) or not job_id.strip() or job_id in seen:
+            raise ValueError("Each job needs a unique non-empty id")
+        seen.add(job_id)
+        if platform not in ALLOWED | VIDEO_PLATFORMS:
+            raise ValueError("Unsupported scheduled platform")
+        if not owned_story_url(story_url):
+            raise ValueError("Scheduled story must be an owned CartoonTamilan URL")
+        if job.get("published") is not False:
+            raise ValueError("Schedule entries must begin unpublished")
+        try:
+            dt = datetime.fromisoformat(scheduled_at)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("scheduled_at must be an ISO timestamp with timezone") from exc
+        if dt.tzinfo is None or dt.utcoffset() is None:
+            raise ValueError("scheduled_at must include a timezone offset")
+    return jobs
+
+
+def _next_hourly_slot(after: datetime) -> datetime:
+    local = after.astimezone(IST)
+    return local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+
+def refresh_hourly_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
+    """Discover a fresh owned-site story and prepare its FB/IG queue at most once per hour.
+
+    Failures are retried after one hour. A successful generation is not repeated
+    that hour, preventing repeated generation during the same hourly slot.
+    """
+    if os.getenv("CT_V14_AUTO_SCHEDULE_QUEUE", "").lower() != "true":
+        return {"enabled": False, "status": "disabled"}
+
+    marker = Path("data/v14_hourly_queue_refresh.json")
+    now = datetime.now(IST)
+    state = {}
+    if marker.is_file():
+        try:
+            state = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            state = {}
+    for field in ("success_at", "attempted_at"):
+        timestamp = state.get(field)
+        if timestamp:
+            try:
+                previous = datetime.fromisoformat(timestamp)
+                if previous.tzinfo is not None and now - previous < timedelta(hours=1):
+                    status = "already_refreshed_this_hour" if field == "success_at" else "retry_wait"
+                    return {"enabled": True, "status": status}
+            except ValueError:
+                pass
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    state["attempted_at"] = now.isoformat()
+    temp = marker.with_suffix(marker.suffix + ".tmp")
+    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    temp.replace(marker)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "ct_v14_social_queue.py", "create-and-prepare",
+             "--limit", "1", "--outdir", outdir,
+             "--exclude-scheduled-from", str(schedule_path)],
+            check=False, capture_output=True, text=True, timeout=900,
+        )
+        summary = {}
+        try:
+            summary = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            for line in reversed(completed.stdout.splitlines()):
+                try:
+                    summary = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if completed.returncode != 0:
+            return {"enabled": True, "status": "generation_failed",
+                    "exit_code": completed.returncode,
+                    "error_type": "QueueGenerationError"}
+        state["success_at"] = now.isoformat()
+        state["last_result"] = {
+            key: summary.get(key) for key in
+            ("status", "skipped_already_scheduled",
+             "generated_image_formats", "image_post_queue_count",
+             "multimedia_generation", "generated_media_count", "published",
+             "repost_round")
+            if key in summary
+        }
+        temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8")
+        temp.replace(marker)
+        return {"enabled": True, "status": "refreshed", **state["last_result"]}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"enabled": True, "status": "generation_failed",
+                "error_type": type(exc).__name__}
+
+
+def sync_queue(outdir: str, schedule_path: Path = SCHEDULE) -> dict:
+    """Append eligible unpublished IG+FB queue stories to daily schedule."""
+    if os.getenv("CT_V14_AUTO_SCHEDULE_QUEUE", "").lower() != "true":
+        return {"enabled": False, "added": 0}
+    queue_path = Path(outdir) / "social_queue.json"
+    if not queue_path.is_file():
+        return {"enabled": True, "added": 0, "status": "queue_not_ready"}
+
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    if (not isinstance(queue, dict) or queue.get("published") is not False
+            or queue.get("live_publishing") is not False
+            or not isinstance(queue.get("image_post_queue"), list)):
+        raise ValueError("Only an unpublished V14 queue is accepted")
+
+    if schedule_path.exists():
+        jobs = read_jobs(schedule_path)
+        payload = json.loads(schedule_path.read_text(encoding="utf-8"))
+    else:
+        jobs = []
+        payload = {"version": 14, "published": False, "jobs": []}
+    existing = {job["id"] for job in jobs}
+    try:
+        repost_round = max(0, int(queue.get("repost_round", 0)))
+    except (TypeError, ValueError):
+        raise ValueError("Queue repost_round must be a non-negative integer")
+
+    grouped = {}
+    for draft in queue["image_post_queue"]:
+        platform, url = draft.get("platform"), draft.get("story_url")
+        if platform in ALLOWED and owned_story_url(url):
+            grouped.setdefault(url, set()).add(platform)
+
+    last_slot = max(
+        (datetime.fromisoformat(j["scheduled_at"]).astimezone(IST) for j in jobs),
+        default=None,
+    )
+    if last_slot is None:
+        slot = datetime.now(IST) + timedelta(minutes=1)
+    else:
+        slot = _next_hourly_slot(max(last_slot, datetime.now(IST)))
+    added = 0
+    story_slots = {}
+    for story_url in grouped:
+        if not REQUIRED_IMAGE_PLATFORMS.issubset(grouped[story_url]):
+            continue
+        platforms = ["instagram", "facebook"]
+        if (os.getenv("CT_V14_ENABLE_X", "").lower() == "true"
+                and "x" in grouped[story_url]):
+            platforms.append("x")
+        try:
+            items = {
+                platform: load_drafts(outdir, platform=platform, story_url=story_url)[0]
+                for platform in platforms
+            }
+        except (PermissionError, ValueError, FileNotFoundError):
+            # Invalid queue items are skipped; there is no manual approval gate.
+            continue
+
+        new_jobs = []
+        for platform in platforms:
+            draft = items[platform]
+            base_job_id = "v14-" + platform + "-" + draft["id"]
+            job_id = base_job_id if repost_round == 0 else base_job_id + "-r" + str(repost_round)
+            if job_id not in existing:
+                new_jobs.append({
+                    "id": job_id,
+                    "platform": platform,
+                    "story_url": story_url,
+                    "scheduled_at": slot.isoformat(),
+                    "published": False,
+                    "source_draft_id": draft["id"],
+                    "repost_round": repost_round,
+                })
+        if new_jobs:
+            jobs.extend(new_jobs)
+            existing.update(job["id"] for job in new_jobs)
+            added += len(new_jobs)
+            story_slots[story_url] = new_jobs[0]["scheduled_at"]
+            slot += timedelta(hours=1)
+
+    # Add opted-in video formats for the same old website story.
+    for video in queue.get("reel_short_requirements", []):
+        if not isinstance(video, dict) or video.get("published") is not False:
+            continue
+        if video.get("status") != "draft_video_ready_review" or not video.get("video_file"):
+            continue
+        story_url = video.get("story_url")
+        platform = VIDEO_SOURCE_PLATFORMS.get(video.get("platform"))
+        if platform is None or not owned_story_url(story_url):
+            continue
+        enable_flag = {
+            "instagram_reel": "CT_V14_ENABLE_INSTAGRAM_REELS",
+            "instagram_story": "CT_V14_ENABLE_INSTAGRAM_STORIES",
+            "facebook_reel": "CT_V14_ENABLE_FACEBOOK_REELS",
+            "youtube_short": "CT_V14_ENABLE_YOUTUBE_SHORTS",
+        }[platform]
+        if os.getenv(enable_flag, "").lower() != "true":
+            continue
+        digest = str(video.get("video_sha256") or "")
+        if not digest:
+            continue
+        video_job_id = "v14-" + platform + "-" + hashlib.sha256(
+            (story_url + "\n" + digest).encode("utf-8")
+        ).hexdigest()[:24]
+        if repost_round > 0:
+            video_job_id += "-r" + str(repost_round)
+        if video_job_id in existing:
+            continue
+        scheduled_at = story_slots.get(story_url)
+        if not scheduled_at:
+            matching = next((job for job in jobs
+                             if job.get("story_url") == story_url
+                             and job.get("platform") in ALLOWED), None)
+            scheduled_at = matching["scheduled_at"] if matching else slot.isoformat()
+        jobs.append({
+            "id": video_job_id, "platform": platform, "story_url": story_url,
+            "scheduled_at": scheduled_at, "published": False,
+            "video_platform": video.get("platform"),
+            "video_sha256": digest,
+            "repost_round": repost_round,
+        })
+        existing.add(video_job_id)
+        added += 1
+
+    payload["jobs"] = jobs
+    schedule_path.parent.mkdir(parents=True, exist_ok=True)
+    temp = schedule_path.with_suffix(schedule_path.suffix + ".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    temp.replace(schedule_path)
+    return {"enabled": True, "added": added, "scheduled_jobs": len(jobs)}
+
+
+def init_state(path: Path = STATE) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=30)
+    db.execute("""CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY, status TEXT NOT NULL,
+        updated_at TEXT NOT NULL, detail TEXT
+    )""")
+    db.commit()
+    return db
+
+
+def process_due(outdir: str, schedule_path: Path = SCHEDULE,
+                state_path: Path = STATE) -> dict:
+    daily_queue = refresh_hourly_queue(outdir, schedule_path)
+    sync = sync_queue(outdir, schedule_path)
+    try:
+        from ct_v14_operations import refresh_intelligence
+        intelligence = refresh_intelligence()
+    except Exception as exc:
+        intelligence = {"status": "refresh_failed", "error_type": type(exc).__name__}
+    if not schedule_path.exists():
+        return {"checked_at": datetime.now(timezone.utc).isoformat(),
+                "daily_queue": daily_queue, "auto_schedule": sync, "intelligence": intelligence, "results": [],
+                "live_enabled_only_by_explicit_env_gates": True}
+    jobs = read_jobs(schedule_path)
+    now = datetime.now(timezone.utc)
+    db = init_state(state_path)
+    results = []
+    try:
+        for job in jobs:
+            due = datetime.fromisoformat(job["scheduled_at"]).astimezone(timezone.utc)
+            if due > now:
+                continue
+            row = db.execute("SELECT status FROM jobs WHERE job_id=?", (job["id"],)).fetchone()
+            if row:
+                results.append({"id": job["id"], "status": row[0]})
+                continue
+            try:
+                if job["platform"] in VIDEO_PLATFORMS:
+                    from ct_v14_video_publish import run as run_video
+                    result = run_video(
+                        outdir, platform=job["platform"],
+                        story_url=job["story_url"], live=True,
+                        confirm=CONFIRMATION,
+                        delivery_cycle=int(job.get("repost_round", 0)),
+                    )
+                else:
+                    result = run(outdir, platform=job["platform"],
+                                 story_url=job["story_url"], live=True,
+                                 confirm=CONFIRMATION,
+                                 delivery_cycle=int(job.get("repost_round", 0)))
+                statuses = [item.get("status") for item in result.get("results", [])]
+                if job["platform"] in VIDEO_PLATFORMS:
+                    status = ("published" if result.get("status") == "completed"
+                              and result.get("published") is True
+                              else "needs_reconciliation")
+                else:
+                    status = ("published" if result.get("status") == "completed"
+                              and statuses and all(s == "published" for s in statuses)
+                              else "needs_reconciliation")
+                detail = json.dumps(result, ensure_ascii=False)
+            except Exception as exc:
+                # Failed preflights can be retried after configuration is fixed.
+                if type(exc).__name__ in {"PermissionError", "ValueError", "FileNotFoundError"}:
+                    results.append({"id": job["id"], "status": "blocked",
+                                    "error_type": type(exc).__name__, "message": str(exc)})
+                    continue
+                # An unknown error may have reached Meta; never auto-retry it.
+                status = "needs_reconciliation"
+                detail = type(exc).__name__
+            db.execute("INSERT INTO jobs VALUES (?,?,?,?)",
+                       (job["id"], status, datetime.now(timezone.utc).isoformat(), detail))
+            db.commit()
+            results.append({"id": job["id"], "status": status})
+    finally:
+        db.close()
+    return {"checked_at": now.isoformat(), "daily_queue": daily_queue,
+            "auto_schedule": sync, "intelligence": intelligence, "results": results,
+            "live_enabled_only_by_explicit_env_gates": True}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Process automatically scheduled V14 social image and video jobs")
+    parser.add_argument("--outdir", default="output/v14/image_posts")
+    parser.add_argument("--schedule", type=Path, default=SCHEDULE)
+    parser.add_argument("--state", type=Path, default=STATE)
+    parser.add_argument("--poll-seconds", type=int, default=60,
+                        help="Use 0 for a single check; otherwise keep polling")
+    args = parser.parse_args()
+    if args.poll_seconds < 0:
+        parser.error("--poll-seconds must be >= 0")
+    while True:
+        result = process_due(args.outdir, args.schedule, args.state)
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        if args.poll_seconds == 0:
+            return 0
+        time.sleep(args.poll_seconds)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

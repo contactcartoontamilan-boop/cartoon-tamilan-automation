@@ -4,3 +4,8 @@ beautifulsoup4>=4.12.3
 PyYAML>=6.0.2
 python-dotenv>=1.0.1
 Pillow>=10.0.0
+# Free local Indic Tiny Tamil female TTS used by V14 story videos.
+numpy>=1.26,<3
+onnxruntime>=1.19
+huggingface_hub>=0.23
+tzdata>=2024.1

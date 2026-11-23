@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """V14 multi-platform image inventory + review-only posting queue.
 
-A planned time is NOT a background scheduler or a publication authorization.
-This module never makes API requests, publishes, emails, or uploads content.
+A planned time is NOT publication authorization. The prepare command is local-only;
+create-and-prepare may generate remote media only behind explicit environment gates.
+This module never publishes or uploads content.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,9 +23,12 @@ from v12_story_reader import owned_story_url
 IMAGE_POST_PLATFORMS = ("instagram", "facebook", "pinterest", "threads", "x",
                         "linkedin", "telegram")
 VIDEO_PLATFORMS = (
-    ("instagram_reels", "instagram_story"),
-    ("facebook_reels", "instagram_story"),
-    ("youtube_shorts", "youtube_short"),
+    ("instagram_reels", "instagram_story", "video_file", "reel_caption"),
+    ("instagram_stories", "instagram_story", "video_file", "reel_caption"),
+    ("facebook_reels", "instagram_story", "video_file", "reel_caption"),
+    ("youtube_shorts", "youtube_short", "video_file", "reel_caption"),
+    ("youtube_full_episode", "youtube_full_episode", "youtube_full_episode_file",
+     "youtube_full_episode_caption"),
 )
 EXISTING_REVIEW_GATED_ADAPTERS = ("instagram", "facebook", "telegram")
 
@@ -83,7 +88,8 @@ def _planned_time(start_at: str | None) -> datetime | None:
 
 def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
                          *, start_at: str | None = None,
-                         interval_minutes: int = 30) -> dict:
+                         interval_minutes: int = 30,
+                         repost_round: int = 0) -> dict:
     """Check all image formats and save an idempotent, review-only post queue."""
     if not 1 <= interval_minutes <= 1440:
         raise ValueError("Interval must be 1 to 1440 minutes")
@@ -154,7 +160,8 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
             "status": "pending_human_review",
             "requires_account_authorization": True,
             "published": False,
-            "publisher": ("existing_review_gated_adapter" if platform in
+            "publisher": ("v14_opt_in_review_gated_adapter" if platform == "x" else
+                          "existing_review_gated_adapter" if platform in
                           EXISTING_REVIEW_GATED_ADAPTERS else
                           "not_integrated_export_only"),
             "planned_time_for_review": None,
@@ -174,19 +181,40 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
                 start + timedelta(minutes=interval_minutes * number)).isoformat()
 
     videos = []
+    generated_by_story = {
+        item.get("story_url"): item for item in source.get("generated_media", [])
+        if isinstance(item, dict) and item.get("story_url")
+    }
     for url, variants in inventory.items():
-        for platform, cover_variant in VIDEO_PLATFORMS:
+        media = generated_by_story.get(url, {})
+        for platform, cover_variant, file_key, caption_key in VIDEO_PLATFORMS:
             cover = variants.get(cover_variant)
+            video_file = media.get(file_key)
+            digest_key = ("youtube_full_episode_sha256" if file_key ==
+                          "youtube_full_episode_file" else
+                          "video_with_voice_sha256" if media.get("video_with_voice_file")
+                          else "video_sha256")
             videos.append({
                 "platform": platform, "story_url": url,
+                "story_title": media.get("story_title") or variants.get("title") or "",
                 "cover_image_file": cover["file"] if cover else None,
-                "status": "mp4_video_required",
+                "video_file": video_file,
+                "voice_file": (media.get("youtube_full_episode_voice_file")
+                               if file_key == "youtube_full_episode_file"
+                               else media.get("voice_file")),
+                "caption": media.get(caption_key),
+                "video_sha256": media.get(digest_key),
+                "status": "draft_video_ready_review" if video_file
+                    else "mp4_video_required",
                 "published": False,
+                "requires_human_review": True,
             })
 
     result = {
         "version": 14,
+        "repost_round": int(repost_round),
         "workflow": "review_only_multi_platform_image_queue",
+        "art_mode": source.get("art_mode", "cover"),
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "generated_image_formats": len(images),
         "image_post_queue_count": len(queue),
@@ -196,12 +224,19 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
         "image_post_queue": queue,
         "thumbnail_exports": exports,
         "reel_short_requirements": videos,
+        "generated_media": source.get("generated_media", []),
+        "multimedia_generation": source.get("multimedia_generation",
+                                            {"status": "not_requested", "generated": []}),
         "published": False,
         "live_publishing": False,
         "background_scheduler_running": False,
         "requires_human_review": True,
         "notes": [
-            "These are existing website-cover designs, not newly generated AI illustrations.",
+            ("Generated with configured ComfyUI; inspect and review the artwork."
+             if source.get("art_mode") == "comfyui" else
+             "Generated with an opted-in AI image provider; inspect and review the artwork."
+             if source.get("art_mode") == "ai_provider" else
+             "Using existing website-cover designs as fallback artwork."),
             "planned_time_for_review is only a suggested review slot, not an auto-post.",
             "Reels and Shorts require an MP4; a JPEG cover is not a publishable video.",
             "YouTube thumbnails require a real video upload, account authorization and review.",
@@ -223,16 +258,58 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=1,
                         help="Used only by create-and-prepare")
     parser.add_argument("--outdir", default="output/v14/image_posts")
+    parser.add_argument("--exclude-scheduled-from", default="data/v14_scheduled_posts.json",
+                        help="Schedule file whose story URLs must not be prepared again")
     parser.add_argument("--start-at", default=None,
                         help="Optional timezone-aware review plan; NOT live scheduling")
     parser.add_argument("--interval-minutes", type=int, default=30)
+    parser.add_argument("--recycle-scheduled", action="store_true",
+                        help="After all discovered stories were scheduled, rotate old stories as a new campaign cycle")
     args = parser.parse_args(argv)
+    repost_round = 0
     if args.command == "create-and-prepare":
         from ct_v14_image_post import prepare_image_posts
-        first = prepare_image_posts(args.limit, args.outdir)
+        schedule_file = Path(args.exclude_scheduled_from)
+        excluded_urls = set()
+        if schedule_file.is_file():
+            schedule_data = _read_json(schedule_file)
+            scheduled_jobs = schedule_data.get("jobs")
+            if (schedule_data.get("published") is not False
+                    or not isinstance(scheduled_jobs, list)):
+                raise ValueError("Existing schedule is invalid; refusing to repeat old posts")
+            repost_round = max(
+                (int(job.get("repost_round", 0)) for job in scheduled_jobs
+                 if isinstance(job, dict)), default=0)
+            excluded_urls = {
+                str(job["story_url"]).rstrip("/")
+                for job in scheduled_jobs
+                if isinstance(job, dict) and isinstance(job.get("story_url"), str)
+            }
+        first = prepare_image_posts(args.limit, args.outdir,
+                                    exclude_story_urls=excluded_urls,
+                                    repost_round=repost_round)
         if not first["posts"]:
-            print(json.dumps({"status": "no_images_created", "published": False}))
-            return 1
+            if first.get("status") == "no_unposted_stories" and args.recycle_scheduled:
+                repost_round += 1
+                first = prepare_image_posts(args.limit, args.outdir,
+                                            exclude_story_urls=set(),
+                                            repost_round=repost_round)
+            if not first["posts"] and first.get("status") == "no_unposted_stories":
+                print(json.dumps({
+                    "status": "no_unposted_stories",
+                    "skipped_already_scheduled": first.get("skipped_already_scheduled", 0),
+                    "repost_round": repost_round,
+                    "generated_image_formats": 0,
+                    "image_post_queue_count": 0,
+                    "published": False,
+                }))
+                return 0
+            if not first["posts"]:
+                print(json.dumps({"status": "no_images_created", "published": False}))
+                return 1
+        if os.getenv("CT_V14_HOURLY_MEDIA_ENABLED", "").lower() == "true":
+            from ct_v14_hourly_media import prepare_hourly_media
+            prepare_hourly_media(args.outdir)
     if args.command == "status":
         path = Path(args.outdir) / "social_queue.json"
         if not path.is_file():
@@ -241,12 +318,16 @@ def main(argv=None) -> int:
         result = _read_json(path)
     else:
         result = prepare_social_queue(args.outdir, start_at=args.start_at,
-                                      interval_minutes=args.interval_minutes)
+                                      interval_minutes=args.interval_minutes,
+                                      repost_round=repost_round)
     print(json.dumps({
         "generated_image_formats": result["generated_image_formats"],
         "image_post_queue_count": result["image_post_queue_count"],
+        "repost_round": result.get("repost_round", 0),
         "thumbnail_only_count": result["thumbnail_only_count"],
         "video_workflows_waiting_for_mp4": result["video_workflows_waiting_for_mp4"],
+        "multimedia_generation": result.get("multimedia_generation"),
+        "generated_media_count": len(result.get("generated_media", [])),
         "queue_file": str(Path(args.outdir) / "social_queue.json"),
         "published": False, "background_scheduler_running": False,
     }, ensure_ascii=False, indent=2))

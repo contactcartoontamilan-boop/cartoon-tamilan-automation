@@ -1,0 +1,45 @@
+name: Deploy V14 scheduler to Oracle
+
+on:
+  push:
+    branches:
+      - feature/v14-social-publish-fb-ig-x-qa
+  workflow_dispatch:
+
+concurrency:
+  group: oracle-v14-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy the pushed branch to Oracle
+        env:
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ORACLE_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          if printf '%s' "$ORACLE_SSH_KEY" | grep -q -- '-----BEGIN .*PRIVATE KEY-----'; then
+            printf '%s\n' "$ORACLE_SSH_KEY" | tr -d '\r' > ~/.ssh/oracle_key
+          else
+            printf '%s' "$ORACLE_SSH_KEY" | base64 --decode > ~/.ssh/oracle_key
+          fi
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keygen -y -f ~/.ssh/oracle_key >/dev/null
+          ssh-keyscan -H "80.225.239.193" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o BatchMode=yes ubuntu@"80.225.239.193" 'set -eu
+            cd /home/ubuntu/cartoon-tamilan-v14-social-test
+            git fetch origin feature/v14-social-publish-fb-ig-x-qa
+            git checkout feature/v14-social-publish-fb-ig-x-qa
+            git reset --hard FETCH_HEAD
+            if ! command -v espeak-ng >/dev/null; then
+              sudo -n apt-get update -qq
+              sudo -n apt-get install -y --no-install-recommends espeak-ng
+            fi
+            .venv/bin/python -m pip install -r requirements.txt
+            .venv/bin/python -m py_compile ct_v14_scheduler.py ct_v14_social_queue.py ct_v14_social_publish.py ct_v14_video_publish.py ct_v14_hourly_media.py ct_v14_operations.py ct_v14_image_post.py ct_episode_discovery.py v12_story_reader.py ctos/content.py ctos/pipeline.py ctos/video.py v12_news.py growth_analytics.py
+            .venv/bin/python -c "from pathlib import Path; from tempfile import TemporaryDirectory; from PIL import Image; from ct_v14_hourly_media import _episode_reel; import subprocess,os; os.environ[\"CT_V14_REEL_VOICE\"]=\"espeak\"; t=TemporaryDirectory(); p=Path(t.name); art=p/\"cover.png\"; Image.new(\"RGB\", (720,1280)).save(art); v=_episode_reel({\"title\":\"தமிழ்க் கதை\",\"episode_number\":1,\"summary\":\"அன்று இரவு, கதையின் தொடக்கம் அமைதியாக இருந்தது.\"},art,p/\"sample\",8,p/\"scenes\",is_full_episode=True); assert subprocess.check_output([\"ffprobe\",\"-v\",\"error\",\"-select_streams\",\"a:0\",\"-show_entries\",\"stream=codec_name\",\"-of\",\"csv=p=0\",str(v)]).strip()==b\"aac\""
+          '
+          rm -f ~/.ssh/oracle_key

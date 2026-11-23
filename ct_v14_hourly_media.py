@@ -353,7 +353,7 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
     # motion-comic MP4 with subtitles. This is not generative text-to-video.
     local_video = os.getenv("CT_V14_LOCAL_VIDEO_ENABLED", "false").lower() == "true"
     api_enabled = os.getenv("ENABLE_AI_MEDIA_API", "false").lower() == "true"
-    if local_video and not api_enabled:
+    if local_video:
         try:
             assets = manifest.get("assets", {})
             poster_rel = (manifest.get("source_artwork") or assets.get("instagram_story")

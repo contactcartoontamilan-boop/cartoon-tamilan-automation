@@ -95,10 +95,9 @@ def _load_video(outdir: str | Path, platform: str, story_url: str) -> dict:
     ]
     preferred = "instagram" if platform == "instagram_reel" else "facebook"
     matching = next((item for item in image_drafts if item.get("platform") == preferred), None)
-    caption = str(matching.get("caption") if matching else "").strip()
-    if platform in {"youtube_short", "youtube_full_episode"} and draft.get("caption"):
-        caption = str(draft["caption"]).strip()
-    elif platform == "youtube_short":
+    caption = str(draft.get("caption") or
+                   (matching.get("caption") if matching else "")).strip()
+    if not caption and platform == "youtube_short":
         caption = f"{title} | Cartoon Tamilan\n\nRead the original Tamil story: {story_url}\n#Shorts #TamilStories #CartoonTamilan"
     elif not caption:
         caption = f"{title}\n\nRead the original Tamil story: {story_url}\n#CartoonTamilan #TamilStories"

@@ -70,7 +70,8 @@ def _mux_voice(video: Path, voice: Path, output: Path) -> Path:
 
 
 
-def _scene_picture(index, passage, cover, scene_dir, destination, used):
+def _scene_picture(index, passage, cover, scene_dir, destination, used,
+                   dimensions=(720, 1280)):
     """Use numbered episode artwork, then original local interlude illustrations."""
     from PIL import Image, ImageOps
 
@@ -82,11 +83,11 @@ def _scene_picture(index, passage, cover, scene_dir, destination, used):
         if not path.is_file():
             continue
         with Image.open(path) as source:
-            picture = ImageOps.contain(source.convert("RGB"), (720, 1280))
+            picture = ImageOps.contain(source.convert("RGB"), dimensions)
         digest = hashlib.sha256(picture.tobytes()).digest()
         if digest not in used:
             used.add(digest)
-            canvas = Image.new("RGB", (720, 1280), "#101827")
+            canvas = Image.new("RGB", dimensions, "#101827")
             canvas.paste(picture, ((720-picture.width)//2, (1280-picture.height)//2))
             canvas.save(destination)
             return
@@ -95,7 +96,7 @@ def _scene_picture(index, passage, cover, scene_dir, destination, used):
     with Image.open(cover) as original:
         source = original.convert("RGB")
     anchors = ((0.5, 0.5), (0.25, 0.42), (0.75, 0.45), (0.5, 0.62))
-    canvas = ImageOps.fit(source, (720, 1280), centering=anchors[index % len(anchors)])
+    canvas = ImageOps.fit(source, dimensions, centering=anchors[index % len(anchors)])
     canvas.save(destination)
 
 
@@ -240,6 +241,8 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int,
                 f"{label} · முழு எபிசோடைப் படிக்கவும்\nCartoonTamilan.in"]
 
     folder.mkdir(parents=True, exist_ok=True)
+    frame_width, frame_height = (1280, 720) if is_full_episode else (720, 1280)
+    frame_size = (frame_width, frame_height)
     frames = seconds * 24
     font = Path(find_font()).resolve()
 
@@ -268,7 +271,7 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int,
         inputs, filters, used = [], [], set()
         for index, cue in enumerate(cues):
             image = work / f"shot_{index}.png"
-            _scene_picture(index, cue, artwork, scene_dir, image, used)
+            _scene_picture(index, cue, artwork, scene_dir, image, used, frame_size)
             with Image.open(image) as source:
                 frame = source.convert("RGB")
             draw = ImageDraw.Draw(frame)
@@ -276,18 +279,20 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int,
                 face = ImageFont.truetype(str(font), size, layout_engine=ImageFont.Layout.RAQM)
                 try:
                     lines = [line for paragraph in cue.splitlines()
-                             for line in lines_for(draw, paragraph, face, 554)]
+                             for line in lines_for(draw, paragraph, face, frame_width - 110)]
                 except ValueError:
                     continue
                 step = sum(face.getmetrics()) + 5
-                if len(lines) * step <= 300:
+                if len(lines) * step <= frame_height // 2:
                     break
             else:
                 raise ValueError("Caption exceeds the safe reading area")
-            top = 1024 - step * len(lines)
-            draw.rounded_rectangle((38, top-18, 642, 1050), radius=18, fill="#101827")
+            top = frame_height - 90 - step * len(lines)
+            draw.rounded_rectangle((38, top-18, frame_width-38, frame_height-70),
+                                   radius=18, fill="#101827")
             for line in lines:
-                draw.text((340, top), line, font=face, anchor="ma", fill="white")
+                draw.text((frame_width // 2, top), line, font=face,
+                          anchor="ma", fill="white")
                 top += step
             frame.save(image)
             inputs.extend(["-i", image.name])
@@ -295,7 +300,7 @@ def _episode_reel(story: dict, artwork: Path, folder: Path, seconds: int,
             filters.append(
                 f"[{index}:v]zoompan=z='1+0.04*on/{shot_frames}':"
                 f"x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={shot_frames}:"
-                f"s=720x1280:fps=24,setsar=1,format=yuv420p[s{index}]"
+                f"s={frame_width}x{frame_height}:fps=24,setsar=1,format=yuv420p[s{index}]"
             )
         sequence = "".join(f"[s{i}]" for i in range(len(cues)))
         filters.append(sequence + f"concat=n={len(cues)}:v=1:a=0[out]")
@@ -373,7 +378,7 @@ def prepare_hourly_media(outdir: str | Path) -> dict:
             long_seconds = max(60, min(3600, len(chapter) // 12))
             long_path = _episode_reel(
                 story, poster, long_dir, long_seconds, manifest_path.parent / "scenes",
-                narration_text=chapter, output_name="youtube_full_episode_9x16.mp4",
+                narration_text=chapter, output_name="youtube_full_episode_16x9.mp4",
                 is_full_episode=True,
             )
             video_path = reel_path

@@ -111,8 +111,11 @@ def _voice_timeline(cues, seconds, work, scene_dir):
     rate_target = "24000" if provider == "azure" else "22050"
     neural = None
     if provider == "indic_tiny":
-        from indic_tiny_tts import TinyTTSOnnx
+        import sys
         model_dir = Path(os.environ["CT_TAMIL_MODEL_DIR"]).expanduser().resolve(strict=True)
+        if str(model_dir) not in sys.path:
+            sys.path.insert(0, str(model_dir))
+        from indic_tiny_tts import TinyTTSOnnx
         neural = TinyTTSOnnx.from_pretrained(str(model_dir))
         rate_target = "24000"
     boundaries = [0]

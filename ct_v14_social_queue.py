@@ -23,10 +23,12 @@ from v12_story_reader import owned_story_url
 IMAGE_POST_PLATFORMS = ("instagram", "facebook", "pinterest", "threads", "x",
                         "linkedin", "telegram")
 VIDEO_PLATFORMS = (
-    ("instagram_reels", "instagram_story"),
-    ("instagram_stories", "instagram_story"),
-    ("facebook_reels", "instagram_story"),
-    ("youtube_shorts", "youtube_short"),
+    ("instagram_reels", "instagram_story", "video_file", "reel_caption"),
+    ("instagram_stories", "instagram_story", "video_file", "reel_caption"),
+    ("facebook_reels", "instagram_story", "video_file", "reel_caption"),
+    ("youtube_shorts", "youtube_short", "video_file", "reel_caption"),
+    ("youtube_full_episode", "youtube_full_episode", "youtube_full_episode_file",
+     "youtube_full_episode_caption"),
 )
 EXISTING_REVIEW_GATED_ADAPTERS = ("instagram", "facebook", "telegram")
 
@@ -185,19 +187,27 @@ def prepare_social_queue(outdir: str | Path = "output/v14/image_posts",
     }
     for url, variants in inventory.items():
         media = generated_by_story.get(url, {})
-        for platform, cover_variant in VIDEO_PLATFORMS:
+        for platform, cover_variant, file_key, caption_key in VIDEO_PLATFORMS:
             cover = variants.get(cover_variant)
-            video_file = media.get("video_with_voice_file") or media.get("video_file")
+            video_file = media.get(file_key)
+            digest_key = ("youtube_full_episode_sha256" if file_key ==
+                          "youtube_full_episode_file" else
+                          "video_with_voice_sha256" if media.get("video_with_voice_file")
+                          else "video_sha256")
             videos.append({
                 "platform": platform, "story_url": url,
+                "story_title": media.get("story_title") or variants.get("title") or "",
                 "cover_image_file": cover["file"] if cover else None,
                 "video_file": video_file,
-                "voice_file": media.get("voice_file"),
-                "video_sha256": media.get("video_with_voice_sha256")
-                    or media.get("video_sha256"),
+                "voice_file": (media.get("youtube_full_episode_voice_file")
+                               if file_key == "youtube_full_episode_file"
+                               else media.get("voice_file")),
+                "caption": media.get(caption_key),
+                "video_sha256": media.get(digest_key),
                 "status": "draft_video_ready_review" if video_file
                     else "mp4_video_required",
                 "published": False,
+                "requires_human_review": True,
             })
 
     result = {

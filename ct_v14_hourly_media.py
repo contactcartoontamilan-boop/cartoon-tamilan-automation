@@ -138,6 +138,14 @@ def _voice_timeline(cues, seconds, work, scene_dir):
             else:
                 path = synthesize(spoken, work / f"line_{index}.wav", lang="ta",
                                   rights_confirmed=True)
+            if provider == "indic_tiny":
+                speed = float(os.getenv("CT_TAMIL_VOICE_SPEED", "1.4"))
+                if not 1.3 <= speed <= 1.5:
+                    raise ValueError("CT_TAMIL_VOICE_SPEED must be between 1.3 and 1.5")
+                faster = work / f"tempo_{index}.wav"
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+                                "-af", f"atempo={speed}", str(faster)], check=True, timeout=120)
+                path = faster
             with wave.open(str(path), "rb") as clip:
                 rate = clip.getframerate()
                 if clip.getnchannels() != 1 or clip.getsampwidth() != 2:
